@@ -6,9 +6,6 @@
 <title>Sound Slicer — Second Life Audio Clip Tool</title>
 <meta name="description" content="Split songs into Second Life compatible WAV clips directly in your browser. Free, no install required.">
 
-<!-- Enable SharedArrayBuffer (required by ffmpeg.wasm) — must be served from same origin -->
-<script src="coi-serviceworker.js"></script>
-
 <!-- JSZip for download -->
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
@@ -372,10 +369,10 @@ input:focus { border-color: var(--accent); }
 
 <body>
 
-<!-- Loading overlay (ffmpeg init) -->
-<div class="loading-overlay" id="loadingOverlay">
+<!-- Loading overlay (processing) -->
+<div class="loading-overlay hidden" id="loadingOverlay">
   <div class="spinner"></div>
-  <div class="loading-text" id="loadingText">Loading audio engine…</div>
+  <div class="loading-text" id="loadingText">Processing…</div>
 </div>
 
 <div class="container">
@@ -471,7 +468,7 @@ input:focus { border-color: var(--accent); }
   <!-- FOOTER -->
   <div class="footer">
     Sound Slicer for Second Life · Files never leave your computer ·
-    Powered by <a href="https://ffmpeg.wasm.dev" target="_blank">ffmpeg.wasm</a> ·
+    Powered by Web Audio API ·
     <a href="https://github.com/H4RV1/Second-Life-Sound-Slicer" target="_blank">GitHub</a>
   </div>
 
@@ -479,19 +476,17 @@ input:focus { border-color: var(--accent); }
 
 <script>
 // ============================================================================
-// SOUND SLICER — BROWSER VERSION
+// SOUND SLICER — BROWSER VERSION (Web Audio API)
 // ============================================================================
 
 const SL_SAMPLE_RATE = 44100;
-const SL_CHANNELS = 1;
-const SL_BIT_DEPTH = 16;
+const SL_CHANNELS    = 1;
+const SL_BIT_DEPTH   = 16;
 const SL_UPLOAD_COST = 10;
-const MAX_SAMPLES = 1323000;
+const MAX_SAMPLES    = 1323000;
 
 // ── State ──
-let files = [];           // { file: File, duration: number|null }
-let ffmpegLoaded = false;
-let ffmpeg = null;
+let files   = [];   // { file: File, duration: number|null }
 let zipBlob = null;
 
 // ── DOM ──
@@ -511,55 +506,8 @@ const downloadBtn    = $('downloadBtn');
 const loadingOverlay = $('loadingOverlay');
 const loadingText    = $('loadingText');
 
-// ── FFmpeg Init ──
-let useClassicAPI = false;
-
-async function loadScript(src) {
-  return new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = src;
-    s.onload = resolve;
-    s.onerror = reject;
-    document.head.appendChild(s);
-  });
-}
-
-async function initFFmpeg() {
-  try {
-    if (window.crossOriginIsolated) {
-      // Modern 0.12.x API (SharedArrayBuffer available)
-      loadingText.textContent = 'Downloading audio engine (~32 MB)…';
-      await loadScript('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.min.js');
-      await loadScript('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/util.min.js');
-      const { FFmpeg } = FFmpegWASM;
-      ffmpeg = new FFmpeg();
-      ffmpeg.on('log', ({ message }) => { /* console.log('[ffmpeg]', message); */ });
-      await ffmpeg.load({
-        coreURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
-        wasmURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm',
-      });
-      useClassicAPI = false;
-    } else {
-      // Fallback: 0.11.x API (no SharedArrayBuffer needed)
-      loadingText.textContent = 'Loading audio engine…';
-      await loadScript('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js');
-      const { createFFmpeg } = FFmpeg;
-      ffmpeg = createFFmpeg({ log: false });
-      await ffmpeg.load();
-      useClassicAPI = true;
-    }
-
-    ffmpegLoaded = true;
-    loadingOverlay.classList.add('hidden');
-    updateSliceBtn();
-  } catch (err) {
-    loadingText.textContent = 'Failed to load audio engine. Try refreshing the page.';
-    console.error('FFmpeg load error:', err);
-  }
-}
-
-// Give coi-serviceworker time to potentially reload the page and establish isolation
-setTimeout(initFFmpeg, 800);
+// ── Ready immediately (no engine to download) ──
+updateSliceBtn();
 
 // ── File Handling ──
 dropzone.addEventListener('click', () => fileInput.click());
@@ -579,11 +527,10 @@ clearBtn.addEventListener('click', () => {
 });
 
 function addFiles(fileListObj) {
-  const validExts = ['.mp3','.wav','.flac','.ogg','.m4a','.aac','.wma','.aiff','.opus','.webm'];
+  const validExts = ['.mp3','.wav','.flac','.ogg','.m4a','.aac','.aiff','.opus','.webm'];
   for (const f of fileListObj) {
     const ext = '.' + f.name.split('.').pop().toLowerCase();
     if (validExts.includes(ext)) {
-      // Skip duplicates
       if (!files.some(x => x.file.name === f.name && x.file.size === f.size)) {
         files.push({ file: f, duration: null });
       }
@@ -601,7 +548,7 @@ function renderFileList() {
     li.className = 'file-item';
 
     const name = document.createElement('span');
-    name.textContent = '🎵 ' + f.file.name;
+    name.textContent = '\u{1F3B5} ' + f.file.name;
 
     const right = document.createElement('span');
     right.style.display = 'flex';
@@ -610,12 +557,12 @@ function renderFileList() {
 
     const dur = document.createElement('span');
     dur.className = 'dur';
-    dur.textContent = f.duration !== null ? formatDur(f.duration) : '…';
+    dur.textContent = f.duration !== null ? formatDur(f.duration) : '\u2026';
     right.appendChild(dur);
 
     const rm = document.createElement('span');
     rm.className = 'remove';
-    rm.textContent = '✕';
+    rm.textContent = '\u2715';
     rm.onclick = () => { files.splice(i, 1); renderFileList(); refreshEstimate(); hideDownload(); };
     right.appendChild(rm);
 
@@ -636,7 +583,7 @@ function hideDownload() {
 }
 
 function updateSliceBtn() {
-  sliceBtn.disabled = !(ffmpegLoaded && files.length > 0);
+  sliceBtn.disabled = files.length === 0;
 }
 
 // ── Duration Probing (Web Audio API) ──
@@ -669,8 +616,7 @@ function refreshEstimate() {
   if (n === 0) return;
 
   const clipLen = parseFloat(clipLengthEl.value) || 29.98;
-  let totalDur = 0;
-  let totalClips = 0;
+  let totalDur = 0, totalClips = 0;
 
   for (const f of files) {
     if (f.duration && f.duration > 0) {
@@ -683,10 +629,10 @@ function refreshEstimate() {
   const mins = Math.floor(totalDur / 60);
   const secs = totalDur - mins * 60;
 
-  $('estSongs').textContent = n;
+  $('estSongs').textContent    = n;
   $('estDuration').textContent = mins > 0 ? `${mins}m ${secs.toFixed(1)}s` : `${secs.toFixed(1)}s`;
-  $('estClips').textContent = totalClips;
-  $('estCost').textContent = `${cost.toLocaleString()} L$`;
+  $('estClips').textContent    = totalClips;
+  $('estCost').textContent     = `${cost.toLocaleString()} L$`;
 }
 
 // ── Presets ──
@@ -718,7 +664,7 @@ function sanitizeName(name) {
 }
 
 function parseFilename(stem) {
-  const separators = [' - ', ' — ', ' – ', '_-_'];
+  const separators = [' - ', ' \u2014 ', ' \u2013 ', '_-_'];
   for (const sep of separators) {
     const idx = stem.indexOf(sep);
     if (idx !== -1) {
@@ -728,20 +674,85 @@ function parseFilename(stem) {
   return { artist: '', song: stem.trim() };
 }
 
+// ── WAV Encoder (PCM 16-bit mono 44.1kHz) ──
+function writeString(view, offset, str) {
+  for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+}
+
+function encodeWAV(float32Samples, sampleRate) {
+  const numSamples  = float32Samples.length;
+  const bytesPerSmp = SL_BIT_DEPTH / 8;
+  const dataLen     = numSamples * bytesPerSmp;
+  const buffer      = new ArrayBuffer(44 + dataLen);
+  const view        = new DataView(buffer);
+
+  // RIFF header
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, 36 + dataLen, true);
+  writeString(view, 8, 'WAVE');
+
+  // fmt chunk
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);                               // chunk size
+  view.setUint16(20, 1, true);                                // PCM format
+  view.setUint16(22, SL_CHANNELS, true);                      // channels
+  view.setUint32(24, sampleRate, true);                       // sample rate
+  view.setUint32(28, sampleRate * SL_CHANNELS * bytesPerSmp, true); // byte rate
+  view.setUint16(32, SL_CHANNELS * bytesPerSmp, true);        // block align
+  view.setUint16(34, SL_BIT_DEPTH, true);                     // bits per sample
+
+  // data chunk
+  writeString(view, 36, 'data');
+  view.setUint32(40, dataLen, true);
+
+  // Convert float32 [-1,1] to int16
+  let offset = 44;
+  for (let i = 0; i < numSamples; i++) {
+    const s = Math.max(-1, Math.min(1, float32Samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    offset += 2;
+  }
+
+  return new Uint8Array(buffer);
+}
+
+// ── Decode audio file to mono 44.1kHz Float32 via Web Audio API ──
+async function decodeToMono44k(file) {
+  const arrayBuf = await file.arrayBuffer();
+
+  // Decode at native sample rate
+  const tempCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const decoded = await tempCtx.decodeAudioData(arrayBuf);
+  await tempCtx.close();
+
+  const duration    = decoded.duration;
+  const totalFrames = Math.ceil(duration * SL_SAMPLE_RATE);
+
+  // Use OfflineAudioContext to resample to 44100 Hz mono
+  const offline = new OfflineAudioContext(SL_CHANNELS, totalFrames, SL_SAMPLE_RATE);
+  const src     = offline.createBufferSource();
+  src.buffer    = decoded;
+  src.connect(offline.destination);
+  src.start(0);
+
+  const rendered = await offline.startRendering();
+  return rendered.getChannelData(0);  // mono Float32Array
+}
+
 // ── Slicing ──
 sliceBtn.addEventListener('click', startSlicing);
 
 async function startSlicing() {
-  if (!ffmpegLoaded || files.length === 0) return;
+  if (files.length === 0) return;
 
   const clipLen = parseFloat(clipLengthEl.value);
   if (!clipLen || clipLen <= 0 || clipLen > 30) {
     alert('Clip length must be between 0.01 and 30 seconds.');
     return;
   }
-  const samples = Math.floor(clipLen * SL_SAMPLE_RATE);
-  if (samples > MAX_SAMPLES) {
-    alert(`Clip would have ${samples} samples (max ${MAX_SAMPLES}).\nUse ${(MAX_SAMPLES / SL_SAMPLE_RATE).toFixed(2)}s or less.`);
+  const samplesPerClip = Math.floor(clipLen * SL_SAMPLE_RATE);
+  if (samplesPerClip > MAX_SAMPLES) {
+    alert(`Clip would have ${samplesPerClip} samples (max ${MAX_SAMPLES}).\nUse ${(MAX_SAMPLES / SL_SAMPLE_RATE).toFixed(2)}s or less.`);
     return;
   }
 
@@ -755,98 +766,48 @@ async function startSlicing() {
   const totalFiles = files.length;
 
   for (let fi = 0; fi < totalFiles; fi++) {
-    const entry = files[fi];
+    const entry    = files[fi];
     const fileName = entry.file.name;
-    const stem = fileName.replace(/\.[^/.]+$/, '');
+    const stem     = fileName.replace(/\.[^/.]+$/, '');
     const { artist, song } = parseFilename(stem);
     const folderName = sanitizeName(artist && song ? `${artist} - ${song}` : stem);
 
-    setStatus(`[${fi + 1}/${totalFiles}] Loading ${fileName}…`, 0);
+    setStatus(`[${fi + 1}/${totalFiles}] Decoding ${fileName}\u2026`, Math.round((fi / totalFiles) * 100));
 
     try {
-      // Write input to ffmpeg virtual FS
-      const inputData = new Uint8Array(await entry.file.arrayBuffer());
-      const inputName = `input_${fi}` + fileName.substring(fileName.lastIndexOf('.'));
-
-      if (useClassicAPI) {
-        ffmpeg.FS('writeFile', inputName, inputData);
-      } else {
-        await ffmpeg.writeFile(inputName, inputData);
-      }
-
-      // Get duration via probe — convert to WAV first to know length
-      setStatus(`[${fi + 1}/${totalFiles}] Converting ${fileName}…`, 0);
-
-      const wavName = `full_${fi}.wav`;
-      const convertArgs = [
-        '-i', inputName,
-        '-ar', String(SL_SAMPLE_RATE),
-        '-ac', String(SL_CHANNELS),
-        '-sample_fmt', 's16',
-        '-f', 'wav',
-        '-y', wavName
-      ];
-      if (useClassicAPI) { await ffmpeg.run(...convertArgs); }
-      else { await ffmpeg.exec(convertArgs); }
-
-      // Read WAV to get duration from header
-      const wavData = useClassicAPI
-        ? ffmpeg.FS('readFile', wavName)
-        : await ffmpeg.readFile(wavName);
-      const wavDuration = getWavDuration(wavData);
-      const clipMs = clipLen * 1000;
-      const numClips = Math.ceil((wavDuration * 1000) / clipMs);
+      // Decode to mono 44.1 kHz PCM
+      const pcm = await decodeToMono44k(entry.file);
+      const totalSamples = pcm.length;
+      const duration = totalSamples / SL_SAMPLE_RATE;
+      const numClips = Math.ceil(totalSamples / samplesPerClip);
       const pad = numClips < 100 ? 2 : 3;
 
-      // Slice into clips
-      let notecardContent = `${clipLen}\n// Paste sound UUIDs below (one per line)\n// after uploading clips to Second Life\n`;
+      // Build notecard template
+      let notecardContent = `${clipLen}\n`;
 
       for (let c = 0; c < numClips; c++) {
-        const startSec = c * clipLen;
-        const remaining = wavDuration - startSec;
-        const actualDur = Math.min(clipLen, remaining);
+        const startSample = c * samplesPerClip;
+        const endSample   = Math.min(startSample + samplesPerClip, totalSamples);
+        const clipSamples = pcm.subarray(startSample, endSample);
+        const actualDur   = clipSamples.length / SL_SAMPLE_RATE;
+
         const clipFileName = `${String(c).padStart(pad, '0')}_${actualDur.toFixed(2)}s.wav`;
-        const outName = `clip_${fi}_${c}.wav`;
 
         const pct = Math.round(((fi + (c / numClips)) / totalFiles) * 100);
-        setStatus(`[${fi + 1}/${totalFiles}] Exporting ${clipFileName} (${c + 1}/${numClips})`, pct);
+        setStatus(`[${fi + 1}/${totalFiles}] ${clipFileName} (${c + 1}/${numClips})`, pct);
 
-        const sliceArgs = [
-          '-i', wavName,
-          '-ss', String(startSec),
-          '-t', String(actualDur),
-          '-ar', String(SL_SAMPLE_RATE),
-          '-ac', String(SL_CHANNELS),
-          '-sample_fmt', 's16',
-          '-f', 'wav',
-          '-y', outName
-        ];
-        if (useClassicAPI) { await ffmpeg.run(...sliceArgs); }
-        else { await ffmpeg.exec(sliceArgs); }
-
-        const clipData = useClassicAPI
-          ? ffmpeg.FS('readFile', outName)
-          : await ffmpeg.readFile(outName);
-        zip.file(`${folderName}/${clipFileName}`, clipData);
+        // Encode clip as WAV and add to ZIP
+        const wavBytes = encodeWAV(clipSamples, SL_SAMPLE_RATE);
+        zip.file(`${folderName}/${clipFileName}`, wavBytes);
         notecardContent += `// ${clipFileName} -> <paste UUID here>\n`;
         totalOutputClips++;
 
-        // Clean up clip from virtual FS
-        if (useClassicAPI) { ffmpeg.FS('unlink', outName); }
-        else { await ffmpeg.deleteFile(outName); }
+        // Yield to UI thread every few clips
+        if (c % 4 === 3) await new Promise(r => setTimeout(r, 0));
       }
 
       // Add notecard template
       zip.file(`${folderName}/_notecard_template.txt`, notecardContent);
-
-      // Clean up
-      if (useClassicAPI) {
-        ffmpeg.FS('unlink', inputName);
-        ffmpeg.FS('unlink', wavName);
-      } else {
-        await ffmpeg.deleteFile(inputName);
-        await ffmpeg.deleteFile(wavName);
-      }
 
     } catch (err) {
       console.error(`Error slicing ${fileName}:`, err);
@@ -855,12 +816,12 @@ async function startSlicing() {
   }
 
   // Generate ZIP
-  setStatus('Creating ZIP…', 95);
+  setStatus('Creating ZIP\u2026', 95);
   zipBlob = await zip.generateAsync({ type: 'blob' }, meta => {
-    setStatus(`Compressing… ${Math.round(meta.percent)}%`, 95 + Math.round(meta.percent * 0.05));
+    setStatus(`Compressing\u2026 ${Math.round(meta.percent)}%`, 95 + Math.round(meta.percent * 0.05));
   });
 
-  setStatus(`✓ Done! ${totalFiles} song(s), ${totalOutputClips} total clips`, 100, false, true);
+  setStatus(`\u2713 Done! ${totalFiles} song(s), ${totalOutputClips} total clips`, 100, false, true);
   downloadBtn.style.display = '';
   sliceBtn.disabled = false;
 }
@@ -869,28 +830,6 @@ function setStatus(msg, pct, isError = false, isSuccess = false) {
   statusText.textContent = msg;
   statusText.className = 'status-text' + (isError ? ' error' : '') + (isSuccess ? ' success' : '');
   if (pct >= 0) progressFill.style.width = pct + '%';
-}
-
-function getWavDuration(data) {
-  // Read WAV header to extract duration
-  const view = new DataView(data.buffer || data);
-  try {
-    // "data" chunk: find it after "fmt " chunk
-    const sampleRate = view.getUint32(24, true);
-    const byteRate = view.getUint32(28, true);
-    // Find data chunk size
-    let offset = 12;
-    while (offset < data.length - 8) {
-      const id = String.fromCharCode(data[offset], data[offset+1], data[offset+2], data[offset+3]);
-      const size = view.getUint32(offset + 4, true);
-      if (id === 'data') {
-        return size / byteRate;
-      }
-      offset += 8 + size;
-      if (size % 2 !== 0) offset++; // WAV chunks are word-aligned
-    }
-  } catch {}
-  return 0;
 }
 
 // ── Download ──
