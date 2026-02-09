@@ -816,6 +816,12 @@ async function startSlicing() {
   }
 
   // Generate ZIP
+  if (totalFiles === 1) {
+    const stem = files[0].file.name.replace(/\.[^/.]+$/, '');
+    zipFileName = sanitizeName(stem) + '.zip';
+  } else {
+    zipFileName = `sl-sound-clips-${totalFiles}-songs.zip`;
+  }
   setStatus('Creating ZIP\u2026', 95);
   zipBlob = await zip.generateAsync({ type: 'blob' }, meta => {
     setStatus(`Compressing\u2026 ${Math.round(meta.percent)}%`, 95 + Math.round(meta.percent * 0.05));
@@ -833,11 +839,13 @@ function setStatus(msg, pct, isError = false, isSuccess = false) {
 }
 
 // ── Download ──
+let zipFileName = 'sl-sound-clips.zip';
+
 downloadBtn.addEventListener('click', () => {
   if (!zipBlob) return;
   const a = document.createElement('a');
   a.href = URL.createObjectURL(zipBlob);
-  a.download = 'sl-sound-clips.zip';
+  a.download = zipFileName;
   a.click();
   URL.revokeObjectURL(a.href);
 });
