@@ -343,6 +343,31 @@ input:focus { border-color: var(--accent); }
 }
 
 /* ══════════════════════════════════════════════
+   DOWNLOAD LIST
+   ══════════════════════════════════════════════ */
+.dl-list { list-style: none; margin-top: 10px; }
+.dl-list:empty { display: none; }
+.dl-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  border-radius: 6px;
+}
+.dl-item:nth-child(odd) { background: var(--surface); }
+.dl-item:nth-child(even) { background: var(--input); }
+.dl-item .dl-name {
+  color: var(--text);
+  font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-right: 12px;
+}
+.dl-item .btn { flex-shrink: 0; }
+
+/* ══════════════════════════════════════════════
    FOOTER
    ══════════════════════════════════════════════ */
 .footer {
@@ -394,10 +419,11 @@ input:focus { border-color: var(--accent); }
 
     <div class="dropzone" id="dropzone">
       <div class="dropzone-icon">📁</div>
-      <div class="dropzone-text">Drag &amp; drop audio files here, or <strong>click to browse</strong></div>
-      <div class="dropzone-hint">MP3, WAV, FLAC, OGG, M4A, AAC, AIFF, OPUS</div>
+      <div class="dropzone-text">Drag &amp; drop audio files or folders here, or <strong>click to browse</strong></div>
+      <div class="dropzone-hint">MP3, WAV, FLAC, OGG, M4A, AAC, AIFF, OPUS · <strong id="folderBtn" style="cursor:pointer;color:var(--accent)">Browse Folder</strong></div>
     </div>
     <input type="file" id="fileInput" multiple accept="audio/*" style="display:none">
+    <input type="file" id="folderInput" webkitdirectory style="display:none">
 
     <ul class="file-list" id="fileList"></ul>
 
@@ -465,6 +491,12 @@ input:focus { border-color: var(--accent); }
     <button class="btn secondary" id="downloadBtn" style="display:none">💾 Download ZIP</button>
   </div>
 
+  <!-- PER-SONG DOWNLOADS (multiple songs) -->
+  <div class="card" id="downloadsCard" style="display:none">
+    <div class="card-title">💾 DOWNLOADS</div>
+    <ul class="dl-list" id="dlList"></ul>
+  </div>
+
   <!-- FOOTER -->
   <div class="footer">
     Sound Slicer for Second Life · Files never leave your computer ·
@@ -486,13 +518,15 @@ const SL_UPLOAD_COST = 10;
 const MAX_SAMPLES    = 1323000;
 
 // ── State ──
-let files   = [];   // { file: File, duration: number|null }
-let zipBlob = null;
+let files    = [];   // { file: File, duration: number|null }
+let zipBlob  = null;
+let songZips = [];   // { name: string, blob: Blob } per-song zips
 
 // ── DOM ──
 const $ = id => document.getElementById(id);
 const dropzone       = $('dropzone');
 const fileInput      = $('fileInput');
+const folderInput    = $('folderInput');
 const fileList       = $('fileList');
 const fileCount      = $('fileCount');
 const clearBtn       = $('clearBtn');
@@ -503,6 +537,8 @@ const progressFill   = $('progressFill');
 const statusText     = $('statusText');
 const sliceBtn       = $('sliceBtn');
 const downloadBtn    = $('downloadBtn');
+const downloadsCard  = $('downloadsCard');
+const dlList         = $('dlList');
 const loadingOverlay = $('loadingOverlay');
 const loadingText    = $('loadingText');
 
@@ -511,14 +547,44 @@ updateSliceBtn();
 
 // ── File Handling ──
 dropzone.addEventListener('click', () => fileInput.click());
+$('folderBtn').addEventListener('click', e => { e.stopPropagation(); folderInput.click(); });
 dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
 dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
 dropzone.addEventListener('drop', e => {
   e.preventDefault();
   dropzone.classList.remove('dragover');
-  addFiles(e.dataTransfer.files);
+  // Support folder drag via webkitGetAsEntry
+  const items = e.dataTransfer.items;
+  if (items && items.length && items[0].webkitGetAsEntry) {
+    collectFromEntries(items).then(collected => { if (collected.length) addFiles(collected); });
+  } else {
+    addFiles(e.dataTransfer.files);
+  }
 });
 fileInput.addEventListener('change', e => { addFiles(e.target.files); fileInput.value = ''; });
+folderInput.addEventListener('change', e => { addFiles(e.target.files); folderInput.value = ''; });
+
+// Recursively collect audio files from dragged folder entries
+async function collectFromEntries(items) {
+  const validExts = ['.mp3','.wav','.flac','.ogg','.m4a','.aac','.aiff','.opus','.webm'];
+  const results = [];
+  async function readEntry(entry) {
+    if (entry.isFile) {
+      const file = await new Promise(r => entry.file(r));
+      const ext = '.' + file.name.split('.').pop().toLowerCase();
+      if (validExts.includes(ext)) results.push(file);
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const entries = await new Promise(r => reader.readEntries(r));
+      for (const e of entries) await readEntry(e);
+    }
+  }
+  for (let i = 0; i < items.length; i++) {
+    const entry = items[i].webkitGetAsEntry();
+    if (entry) await readEntry(entry);
+  }
+  return results;
+}
 clearBtn.addEventListener('click', () => {
   files = [];
   renderFileList();
@@ -579,7 +645,10 @@ function renderFileList() {
 
 function hideDownload() {
   downloadBtn.style.display = 'none';
+  downloadsCard.style.display = 'none';
+  dlList.innerHTML = '';
   zipBlob = null;
+  songZips = [];
 }
 
 function updateSliceBtn() {
@@ -762,6 +831,7 @@ async function startSlicing() {
   zipBlob = null;
 
   const zip = new JSZip();
+  songZips = [];
   let totalOutputClips = 0;
   const totalFiles = files.length;
 
@@ -782,6 +852,9 @@ async function startSlicing() {
       const numClips = Math.ceil(totalSamples / samplesPerClip);
       const pad = numClips < 100 ? 2 : 3;
 
+      // Per-song zip (for individual downloads)
+      const songZip = new JSZip();
+
       // Build notecard template
       let notecardContent = `${clipLen}\n`;
 
@@ -796,9 +869,10 @@ async function startSlicing() {
         const pct = Math.round(((fi + (c / numClips)) / totalFiles) * 100);
         setStatus(`[${fi + 1}/${totalFiles}] ${clipFileName} (${c + 1}/${numClips})`, pct);
 
-        // Encode clip as WAV and add to ZIP
+        // Encode clip as WAV and add to both ZIPs
         const wavBytes = encodeWAV(clipSamples, SL_SAMPLE_RATE);
         zip.file(`${folderName}/${clipFileName}`, wavBytes);
+        songZip.file(clipFileName, wavBytes);
         notecardContent += `// ${clipFileName} -> <paste UUID here>\n`;
         totalOutputClips++;
 
@@ -806,8 +880,13 @@ async function startSlicing() {
         if (c % 4 === 3) await new Promise(r => setTimeout(r, 0));
       }
 
-      // Add notecard template
+      // Add notecard template to both
       zip.file(`${folderName}/_notecard_template.txt`, notecardContent);
+      songZip.file('_notecard_template.txt', notecardContent);
+
+      // Generate per-song zip
+      const songBlob = await songZip.generateAsync({ type: 'blob' });
+      songZips.push({ name: folderName + '.zip', blob: songBlob, clips: numClips });
 
     } catch (err) {
       console.error(`Error slicing ${fileName}:`, err);
@@ -815,7 +894,7 @@ async function startSlicing() {
     }
   }
 
-  // Generate ZIP
+  // Generate combined ZIP
   if (totalFiles === 1) {
     const stem = files[0].file.name.replace(/\.[^/.]+$/, '');
     zipFileName = sanitizeName(stem) + '.zip';
@@ -829,7 +908,13 @@ async function startSlicing() {
 
   setStatus(`\u2713 Done! ${totalFiles} song(s), ${totalOutputClips} total clips`, 100, false, true);
   downloadBtn.style.display = '';
+  downloadBtn.textContent = totalFiles > 1 ? '\uD83D\uDCBE Download All' : '\uD83D\uDCBE Download ZIP';
   sliceBtn.disabled = false;
+
+  // Show per-song download list for multiple songs
+  if (totalFiles > 1) {
+    renderDownloadList();
+  }
 }
 
 function setStatus(msg, pct, isError = false, isSuccess = false) {
@@ -841,14 +926,40 @@ function setStatus(msg, pct, isError = false, isSuccess = false) {
 // ── Download ──
 let zipFileName = 'sl-sound-clips.zip';
 
-downloadBtn.addEventListener('click', () => {
-  if (!zipBlob) return;
+function triggerDownload(blob, name) {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(zipBlob);
-  a.download = zipFileName;
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
   a.click();
   URL.revokeObjectURL(a.href);
+}
+
+downloadBtn.addEventListener('click', () => {
+  if (!zipBlob) return;
+  triggerDownload(zipBlob, zipFileName);
 });
+
+function renderDownloadList() {
+  dlList.innerHTML = '';
+  songZips.forEach(sz => {
+    const li = document.createElement('li');
+    li.className = 'dl-item';
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'dl-name';
+    nameSpan.textContent = `\uD83C\uDFB5 ${sz.name.replace('.zip','')} (${sz.clips} clips)`;
+    li.appendChild(nameSpan);
+
+    const btn = document.createElement('button');
+    btn.className = 'btn small secondary';
+    btn.textContent = '\u2B07 Download';
+    btn.onclick = () => triggerDownload(sz.blob, sz.name);
+    li.appendChild(btn);
+
+    dlList.appendChild(li);
+  });
+  downloadsCard.style.display = '';
+}
 </script>
 
 </body>
