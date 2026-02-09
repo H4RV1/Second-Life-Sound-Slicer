@@ -856,11 +856,6 @@ async function startSlicing() {
       // Per-song zip (for individual downloads)
       const songZip = new JSZip();
 
-      // Build notecard template — line 1: clip length, line 2: last clip length
-      const lastClipSamples = totalSamples - (numClips - 1) * samplesPerClip;
-      const lastClipDur = lastClipSamples / SL_SAMPLE_RATE;
-      let notecardContent = `${clipLen}\n${lastClipDur.toFixed(6)}\n`;
-
       for (let c = 0; c < numClips; c++) {
         const startSample = c * samplesPerClip;
         const endSample   = Math.min(startSample + samplesPerClip, totalSamples);
@@ -876,16 +871,11 @@ async function startSlicing() {
         const wavBytes = encodeWAV(clipSamples, SL_SAMPLE_RATE);
         zip.file(`${folderName}/${clipFileName}`, wavBytes);
         songZip.file(clipFileName, wavBytes);
-        notecardContent += `// ${clipFileName} -> <paste UUID here>\n`;
         totalOutputClips++;
 
         // Yield to UI thread every few clips
         if (c % 4 === 3) await new Promise(r => setTimeout(r, 0));
       }
-
-      // Add notecard template to both
-      zip.file(`${folderName}/_notecard_template.txt`, notecardContent);
-      songZip.file('_notecard_template.txt', notecardContent);
 
       // Generate per-song zip
       const songBlob = await songZip.generateAsync({ type: 'blob' });
