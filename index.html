@@ -6,8 +6,8 @@
 <title>Sound Slicer — Second Life Audio Clip Tool</title>
 <meta name="description" content="Split songs into Second Life compatible WAV clips directly in your browser. Free, no install required.">
 
-<!-- Enable SharedArrayBuffer on GitHub Pages (required by ffmpeg.wasm) -->
-<script src="https://cdn.jsdelivr.net/npm/coi-serviceworker@0.1.7/coi-serviceworker.min.js"></script>
+<!-- Enable SharedArrayBuffer (required by ffmpeg.wasm) — must be served from same origin -->
+<script src="coi-serviceworker.js"></script>
 
 <!-- JSZip for download -->
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
