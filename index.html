@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sound Slicer — Second Life Audio Clip Tool</title>
+<meta name="description" content="Split songs into Second Life compatible WAV clips directly in your browser. Free, no install required.">
+
+<!-- FFmpeg WASM -->
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/util.min.js"></script>
+<!-- JSZip for download -->
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+
+<style>
+/* ══════════════════════════════════════════════
+   RESET & BASE
+   ══════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #11111b;
+  --card:     #1e1e2e;
+  --surface:  #282840;
+  --input:    #313244;
+  --border:   #3a3a52;
+  --text:     #cdd6f4;
+  --subtext:  #a6adc8;
+  --dim:      #6c7086;
+  --accent:   #89b4fa;
+  --accent2:  #b4d0fb;
+  --green:    #a6e3a1;
+  --red:      #f38ba8;
+  --yellow:   #f9e2af;
+  --font:     'Segoe UI', system-ui, -apple-system, sans-serif;
+  --mono:     'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+}
+
+html { font-size: 16px; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  min-height: 100vh;
+  line-height: 1.5;
+}
+
+/* ══════════════════════════════════════════════
+   LAYOUT
+   ══════════════════════════════════════════════ */
+.container {
+  max-width: 740px;
+  margin: 0 auto;
+  padding: 32px 20px 48px;
+}
+
+/* ══════════════════════════════════════════════
+   HEADER
+   ══════════════════════════════════════════════ */
+.header { margin-bottom: 28px; }
+.header h1 {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.header h1 span { margin-right: 10px; }
+.header p {
+  color: var(--dim);
+  font-size: 0.9rem;
+  margin-top: 4px;
+}
+.badge-row { margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--surface);
+  color: var(--subtext);
+  border: 1px solid var(--border);
+}
+.badge.accent { background: rgba(137,180,250,0.15); color: var(--accent); border-color: rgba(137,180,250,0.3); }
+
+/* ══════════════════════════════════════════════
+   CARDS
+   ══════════════════════════════════════════════ */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px 20px;
+  margin-bottom: 12px;
+}
+.card-title {
+  color: var(--accent);
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ══════════════════════════════════════════════
+   DROP ZONE
+   ══════════════════════════════════════════════ */
+.dropzone {
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  padding: 32px 20px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  margin-bottom: 12px;
+}
+.dropzone:hover, .dropzone.dragover {
+  border-color: var(--accent);
+  background: rgba(137,180,250,0.05);
+}
+.dropzone-icon { font-size: 2rem; margin-bottom: 8px; }
+.dropzone-text { color: var(--subtext); font-size: 0.9rem; }
+.dropzone-text strong { color: var(--accent); }
+.dropzone-hint { color: var(--dim); font-size: 0.78rem; margin-top: 6px; }
+
+/* File list */
+.file-list {
+  list-style: none;
+  max-height: 160px;
+  overflow-y: auto;
+  border-radius: 6px;
+}
+.file-list:empty { display: none; }
+.file-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 12px;
+  font-size: 0.85rem;
+  font-family: var(--mono);
+  color: var(--text);
+}
+.file-item:nth-child(odd) { background: var(--surface); }
+.file-item:nth-child(even) { background: var(--input); }
+.file-item .dur { color: var(--dim); font-size: 0.8rem; }
+.file-item .remove {
+  color: var(--dim);
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0 4px;
+  transition: color 0.15s;
+}
+.file-item .remove:hover { color: var(--red); }
+.file-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+}
+.file-count { color: var(--dim); font-size: 0.82rem; }
+
+/* ══════════════════════════════════════════════
+   FORM ELEMENTS
+   ══════════════════════════════════════════════ */
+label {
+  display: block;
+  color: var(--subtext);
+  font-size: 0.85rem;
+  margin-bottom: 4px;
+}
+input[type="number"], input[type="text"] {
+  background: var(--input);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-family: var(--font);
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.2s;
+  width: 100%;
+}
+input:focus { border-color: var(--accent); }
+
+.row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+.row .field { flex: 1; min-width: 100px; }
+
+.presets { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.preset-pill {
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--input);
+  color: var(--subtext);
+  transition: all 0.15s;
+}
+.preset-pill:hover { border-color: var(--accent); color: var(--accent); }
+.preset-pill.active {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+
+.format-note {
+  color: var(--dim);
+  font-size: 0.78rem;
+  margin-top: 10px;
+}
+
+/* ══════════════════════════════════════════════
+   ESTIMATE GRID
+   ══════════════════════════════════════════════ */
+.est-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.est-item {
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 12px 14px;
+}
+.est-item .est-label {
+  color: var(--dim);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.est-item .est-value {
+  color: var(--text);
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin-top: 2px;
+}
+.est-item .est-value.cost { color: var(--yellow); }
+.est-note {
+  color: var(--dim);
+  font-size: 0.78rem;
+  margin-top: 10px;
+}
+
+/* ══════════════════════════════════════════════
+   PROGRESS
+   ══════════════════════════════════════════════ */
+.progress-track {
+  width: 100%;
+  height: 8px;
+  background: var(--input);
+  border-radius: 99px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--accent);
+  border-radius: 99px;
+  transition: width 0.25s;
+}
+.status-text {
+  color: var(--dim);
+  font-size: 0.82rem;
+}
+.status-text.success { color: var(--green); }
+.status-text.error { color: var(--red); }
+
+/* ══════════════════════════════════════════════
+   BUTTONS
+   ══════════════════════════════════════════════ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 22px;
+  border: none;
+  border-radius: 8px;
+  font-family: var(--font);
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+.btn:active { transform: scale(0.97); }
+.btn.primary {
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 1.05rem;
+  padding: 12px 28px;
+}
+.btn.primary:hover { background: var(--accent2); }
+.btn.primary:disabled {
+  background: var(--border);
+  color: var(--dim);
+  cursor: not-allowed;
+  transform: none;
+}
+.btn.secondary {
+  background: var(--input);
+  color: var(--subtext);
+}
+.btn.secondary:hover { background: var(--surface); color: var(--text); }
+.btn.small {
+  padding: 5px 12px;
+  font-size: 0.82rem;
+  border-radius: 6px;
+}
+.btn.danger { background: var(--input); color: var(--dim); }
+.btn.danger:hover { background: var(--red); color: #fff; }
+
+.action-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* ══════════════════════════════════════════════
+   LOADING OVERLAY
+   ══════════════════════════════════════════════ */
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(17,17,27,0.85);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.loading-overlay.hidden { display: none; }
+.spinner {
+  width: 40px; height: 40px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text {
+  color: var(--subtext);
+  margin-top: 16px;
+  font-size: 0.9rem;
+}
+
+/* ══════════════════════════════════════════════
+   FOOTER
+   ══════════════════════════════════════════════ */
+.footer {
+  margin-top: 36px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  color: var(--dim);
+  font-size: 0.78rem;
+  text-align: center;
+}
+.footer a { color: var(--accent); text-decoration: none; }
+.footer a:hover { text-decoration: underline; }
+
+/* ══════════════════════════════════════════════
+   RESPONSIVE
+   ══════════════════════════════════════════════ */
+@media (max-width: 500px) {
+  .est-grid { grid-template-columns: 1fr; }
+  .header h1 { font-size: 1.4rem; }
+  .container { padding: 20px 14px 40px; }
+}
+</style>
+</head>
+
+<body>
+
+<!-- Loading overlay (ffmpeg init) -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loadingText">Loading audio engine…</div>
+</div>
+
+<div class="container">
+
+  <!-- HEADER -->
+  <div class="header">
+    <h1><span>🎵</span> Sound Slicer</h1>
+    <p>Split songs into Second Life compatible audio clips — right in your browser.</p>
+    <div class="badge-row">
+      <span class="badge accent">100% Client-Side</span>
+      <span class="badge">No Upload</span>
+      <span class="badge">WAV 16-bit · 44.1kHz · Mono</span>
+    </div>
+  </div>
+
+  <!-- INPUT FILES -->
+  <div class="card">
+    <div class="card-title">📂 INPUT FILES</div>
+
+    <div class="dropzone" id="dropzone">
+      <div class="dropzone-icon">📁</div>
+      <div class="dropzone-text">Drag &amp; drop audio files here, or <strong>click to browse</strong></div>
+      <div class="dropzone-hint">MP3, WAV, FLAC, OGG, M4A, AAC, AIFF, OPUS</div>
+    </div>
+    <input type="file" id="fileInput" multiple accept="audio/*" style="display:none">
+
+    <ul class="file-list" id="fileList"></ul>
+
+    <div class="file-actions">
+      <span class="file-count" id="fileCount"></span>
+      <button class="btn small danger" id="clearBtn" style="display:none">Clear All</button>
+    </div>
+  </div>
+
+  <!-- SETTINGS -->
+  <div class="card">
+    <div class="card-title">⚙ SETTINGS</div>
+
+    <div class="row">
+      <div class="field" style="max-width:160px">
+        <label for="clipLength">Clip Length (seconds)</label>
+        <input type="number" id="clipLength" value="29.98" min="1" max="30" step="0.01">
+      </div>
+    </div>
+
+    <div class="presets" id="presets">
+      <button class="preset-pill" data-val="9.98">9.98s</button>
+      <button class="preset-pill" data-val="15">15.0s</button>
+      <button class="preset-pill active" data-val="29.98">29.98s</button>
+    </div>
+
+    <div class="format-note">Output: WAV 16-bit · 44.1 kHz · Mono (Second Life compatible)</div>
+  </div>
+
+  <!-- ESTIMATE -->
+  <div class="card" id="estimateCard" style="display:none">
+    <div class="card-title">📊 ESTIMATE</div>
+
+    <div class="est-grid">
+      <div class="est-item">
+        <div class="est-label">Songs</div>
+        <div class="est-value" id="estSongs">—</div>
+      </div>
+      <div class="est-item">
+        <div class="est-label">Total Duration</div>
+        <div class="est-value" id="estDuration">—</div>
+      </div>
+      <div class="est-item">
+        <div class="est-label">Total Clips</div>
+        <div class="est-value" id="estClips">—</div>
+      </div>
+      <div class="est-item">
+        <div class="est-label">Upload Cost</div>
+        <div class="est-value cost" id="estCost">—</div>
+      </div>
+    </div>
+    <div class="est-note">Each clip costs 10 L$ to upload in Second Life</div>
+  </div>
+
+  <!-- PROGRESS -->
+  <div class="card" id="progressCard" style="display:none">
+    <div class="card-title">⏳ PROGRESS</div>
+    <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+    <div class="status-text" id="statusText">Ready</div>
+  </div>
+
+  <!-- ACTIONS -->
+  <div class="action-row" style="margin-top: 8px;">
+    <button class="btn primary" id="sliceBtn" disabled>🔪 Slice Songs</button>
+    <button class="btn secondary" id="downloadBtn" style="display:none">💾 Download ZIP</button>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    Sound Slicer for Second Life · Files never leave your computer ·
+    Powered by <a href="https://ffmpeg.wasm.dev" target="_blank">ffmpeg.wasm</a> ·
+    <a href="https://github.com/H4RV1/Second-Life-Sound-Slicer" target="_blank">GitHub</a>
+  </div>
+
+</div>
+
+<script>
+// ============================================================================
+// SOUND SLICER — BROWSER VERSION
+// ============================================================================
+
+const SL_SAMPLE_RATE = 44100;
+const SL_CHANNELS = 1;
+const SL_BIT_DEPTH = 16;
+const SL_UPLOAD_COST = 10;
+const MAX_SAMPLES = 1323000;
+
+// ── State ──
+let files = [];           // { file: File, duration: number|null }
+let ffmpegLoaded = false;
+let ffmpeg = null;
+let zipBlob = null;
+
+// ── DOM ──
+const $ = id => document.getElementById(id);
+const dropzone       = $('dropzone');
+const fileInput      = $('fileInput');
+const fileList       = $('fileList');
+const fileCount      = $('fileCount');
+const clearBtn       = $('clearBtn');
+const clipLengthEl   = $('clipLength');
+const estimateCard   = $('estimateCard');
+const progressCard   = $('progressCard');
+const progressFill   = $('progressFill');
+const statusText     = $('statusText');
+const sliceBtn       = $('sliceBtn');
+const downloadBtn    = $('downloadBtn');
+const loadingOverlay = $('loadingOverlay');
+const loadingText    = $('loadingText');
+
+// ── FFmpeg Init ──
+async function initFFmpeg() {
+  try {
+    const { FFmpeg } = FFmpegWASM;
+    ffmpeg = new FFmpeg();
+
+    ffmpeg.on('log', ({ message }) => {
+      // console.log('[ffmpeg]', message);
+    });
+
+    loadingText.textContent = 'Downloading audio engine (~32 MB)…';
+    await ffmpeg.load({
+      coreURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
+      wasmURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm',
+    });
+
+    ffmpegLoaded = true;
+    loadingOverlay.classList.add('hidden');
+    updateSliceBtn();
+  } catch (err) {
+    loadingText.textContent = 'Failed to load audio engine. Try refreshing the page.';
+    console.error('FFmpeg load error:', err);
+  }
+}
+initFFmpeg();
+
+// ── File Handling ──
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropzone.classList.remove('dragover');
+  addFiles(e.dataTransfer.files);
+});
+fileInput.addEventListener('change', e => { addFiles(e.target.files); fileInput.value = ''; });
+clearBtn.addEventListener('click', () => {
+  files = [];
+  renderFileList();
+  refreshEstimate();
+  hideDownload();
+});
+
+function addFiles(fileListObj) {
+  const validExts = ['.mp3','.wav','.flac','.ogg','.m4a','.aac','.wma','.aiff','.opus','.webm'];
+  for (const f of fileListObj) {
+    const ext = '.' + f.name.split('.').pop().toLowerCase();
+    if (validExts.includes(ext)) {
+      // Skip duplicates
+      if (!files.some(x => x.file.name === f.name && x.file.size === f.size)) {
+        files.push({ file: f, duration: null });
+      }
+    }
+  }
+  renderFileList();
+  probeDurations();
+  hideDownload();
+}
+
+function renderFileList() {
+  fileList.innerHTML = '';
+  files.forEach((f, i) => {
+    const li = document.createElement('li');
+    li.className = 'file-item';
+
+    const name = document.createElement('span');
+    name.textContent = '🎵 ' + f.file.name;
+
+    const right = document.createElement('span');
+    right.style.display = 'flex';
+    right.style.alignItems = 'center';
+    right.style.gap = '10px';
+
+    const dur = document.createElement('span');
+    dur.className = 'dur';
+    dur.textContent = f.duration !== null ? formatDur(f.duration) : '…';
+    right.appendChild(dur);
+
+    const rm = document.createElement('span');
+    rm.className = 'remove';
+    rm.textContent = '✕';
+    rm.onclick = () => { files.splice(i, 1); renderFileList(); refreshEstimate(); hideDownload(); };
+    right.appendChild(rm);
+
+    li.appendChild(name);
+    li.appendChild(right);
+    fileList.appendChild(li);
+  });
+
+  const n = files.length;
+  fileCount.textContent = n ? `${n} file${n !== 1 ? 's' : ''}` : '';
+  clearBtn.style.display = n ? '' : 'none';
+  updateSliceBtn();
+}
+
+function hideDownload() {
+  downloadBtn.style.display = 'none';
+  zipBlob = null;
+}
+
+function updateSliceBtn() {
+  sliceBtn.disabled = !(ffmpegLoaded && files.length > 0);
+}
+
+// ── Duration Probing (Web Audio API) ──
+async function probeDurations() {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  for (const entry of files) {
+    if (entry.duration !== null) continue;
+    try {
+      const buf = await entry.file.arrayBuffer();
+      const audio = await ctx.decodeAudioData(buf);
+      entry.duration = audio.duration;
+    } catch {
+      entry.duration = 0;
+    }
+  }
+  ctx.close();
+  renderFileList();
+  refreshEstimate();
+}
+
+// ── Estimate ──
+clipLengthEl.addEventListener('input', () => {
+  refreshEstimate();
+  updatePresetHighlight();
+});
+
+function refreshEstimate() {
+  const n = files.length;
+  estimateCard.style.display = n > 0 ? '' : 'none';
+  if (n === 0) return;
+
+  const clipLen = parseFloat(clipLengthEl.value) || 29.98;
+  let totalDur = 0;
+  let totalClips = 0;
+
+  for (const f of files) {
+    if (f.duration && f.duration > 0) {
+      totalDur += f.duration;
+      totalClips += Math.ceil(f.duration / clipLen);
+    }
+  }
+
+  const cost = totalClips * SL_UPLOAD_COST;
+  const mins = Math.floor(totalDur / 60);
+  const secs = totalDur - mins * 60;
+
+  $('estSongs').textContent = n;
+  $('estDuration').textContent = mins > 0 ? `${mins}m ${secs.toFixed(1)}s` : `${secs.toFixed(1)}s`;
+  $('estClips').textContent = totalClips;
+  $('estCost').textContent = `${cost.toLocaleString()} L$`;
+}
+
+// ── Presets ──
+document.querySelectorAll('.preset-pill').forEach(pill => {
+  pill.addEventListener('click', () => {
+    clipLengthEl.value = pill.dataset.val;
+    updatePresetHighlight();
+    refreshEstimate();
+  });
+});
+
+function updatePresetHighlight() {
+  const val = parseFloat(clipLengthEl.value);
+  document.querySelectorAll('.preset-pill').forEach(p => {
+    p.classList.toggle('active', Math.abs(parseFloat(p.dataset.val) - val) < 0.001);
+  });
+}
+
+// ── Helpers ──
+function formatDur(s) {
+  if (s <= 0) return '?';
+  const m = Math.floor(s / 60);
+  const sec = (s - m * 60).toFixed(1);
+  return m > 0 ? `${m}:${sec.padStart(4, '0')}` : `${sec}s`;
+}
+
+function sanitizeName(name) {
+  return name.replace(/[<>:"/\\|?*]/g, '_').replace(/[\s.]+$/, '') || 'Unknown';
+}
+
+function parseFilename(stem) {
+  const separators = [' - ', ' — ', ' – ', '_-_'];
+  for (const sep of separators) {
+    const idx = stem.indexOf(sep);
+    if (idx !== -1) {
+      return { artist: stem.slice(0, idx).trim(), song: stem.slice(idx + sep.length).trim() };
+    }
+  }
+  return { artist: '', song: stem.trim() };
+}
+
+// ── Slicing ──
+sliceBtn.addEventListener('click', startSlicing);
+
+async function startSlicing() {
+  if (!ffmpegLoaded || files.length === 0) return;
+
+  const clipLen = parseFloat(clipLengthEl.value);
+  if (!clipLen || clipLen <= 0 || clipLen > 30) {
+    alert('Clip length must be between 0.01 and 30 seconds.');
+    return;
+  }
+  const samples = Math.floor(clipLen * SL_SAMPLE_RATE);
+  if (samples > MAX_SAMPLES) {
+    alert(`Clip would have ${samples} samples (max ${MAX_SAMPLES}).\nUse ${(MAX_SAMPLES / SL_SAMPLE_RATE).toFixed(2)}s or less.`);
+    return;
+  }
+
+  sliceBtn.disabled = true;
+  downloadBtn.style.display = 'none';
+  progressCard.style.display = '';
+  zipBlob = null;
+
+  const zip = new JSZip();
+  let totalOutputClips = 0;
+  const totalFiles = files.length;
+
+  for (let fi = 0; fi < totalFiles; fi++) {
+    const entry = files[fi];
+    const fileName = entry.file.name;
+    const stem = fileName.replace(/\.[^/.]+$/, '');
+    const { artist, song } = parseFilename(stem);
+    const folderName = sanitizeName(artist && song ? `${artist} - ${song}` : stem);
+
+    setStatus(`[${fi + 1}/${totalFiles}] Loading ${fileName}…`, 0);
+
+    try {
+      // Write input to ffmpeg virtual FS
+      const inputData = new Uint8Array(await entry.file.arrayBuffer());
+      const inputName = `input_${fi}` + fileName.substring(fileName.lastIndexOf('.'));
+      await ffmpeg.writeFile(inputName, inputData);
+
+      // Get duration via probe — convert to WAV first to know length
+      setStatus(`[${fi + 1}/${totalFiles}] Converting ${fileName}…`, 0);
+
+      const wavName = `full_${fi}.wav`;
+      await ffmpeg.exec([
+        '-i', inputName,
+        '-ar', String(SL_SAMPLE_RATE),
+        '-ac', String(SL_CHANNELS),
+        '-sample_fmt', 's16',
+        '-f', 'wav',
+        '-y', wavName
+      ]);
+
+      // Read WAV to get duration from header
+      const wavData = await ffmpeg.readFile(wavName);
+      const wavDuration = getWavDuration(wavData);
+      const clipMs = clipLen * 1000;
+      const numClips = Math.ceil((wavDuration * 1000) / clipMs);
+      const pad = numClips < 100 ? 2 : 3;
+
+      // Slice into clips
+      let notecardContent = `${clipLen}\n// Paste sound UUIDs below (one per line)\n// after uploading clips to Second Life\n`;
+
+      for (let c = 0; c < numClips; c++) {
+        const startSec = c * clipLen;
+        const remaining = wavDuration - startSec;
+        const actualDur = Math.min(clipLen, remaining);
+        const clipFileName = `${String(c).padStart(pad, '0')}_${actualDur.toFixed(2)}s.wav`;
+        const outName = `clip_${fi}_${c}.wav`;
+
+        const pct = Math.round(((fi + (c / numClips)) / totalFiles) * 100);
+        setStatus(`[${fi + 1}/${totalFiles}] Exporting ${clipFileName} (${c + 1}/${numClips})`, pct);
+
+        await ffmpeg.exec([
+          '-i', wavName,
+          '-ss', String(startSec),
+          '-t', String(actualDur),
+          '-ar', String(SL_SAMPLE_RATE),
+          '-ac', String(SL_CHANNELS),
+          '-sample_fmt', 's16',
+          '-f', 'wav',
+          '-y', outName
+        ]);
+
+        const clipData = await ffmpeg.readFile(outName);
+        zip.file(`${folderName}/${clipFileName}`, clipData);
+        notecardContent += `// ${clipFileName} -> <paste UUID here>\n`;
+        totalOutputClips++;
+
+        // Clean up clip from virtual FS
+        await ffmpeg.deleteFile(outName);
+      }
+
+      // Add notecard template
+      zip.file(`${folderName}/_notecard_template.txt`, notecardContent);
+
+      // Clean up
+      await ffmpeg.deleteFile(inputName);
+      await ffmpeg.deleteFile(wavName);
+
+    } catch (err) {
+      console.error(`Error slicing ${fileName}:`, err);
+      setStatus(`Error slicing ${fileName}: ${err.message}`, -1, true);
+    }
+  }
+
+  // Generate ZIP
+  setStatus('Creating ZIP…', 95);
+  zipBlob = await zip.generateAsync({ type: 'blob' }, meta => {
+    setStatus(`Compressing… ${Math.round(meta.percent)}%`, 95 + Math.round(meta.percent * 0.05));
+  });
+
+  setStatus(`✓ Done! ${totalFiles} song(s), ${totalOutputClips} total clips`, 100, false, true);
+  downloadBtn.style.display = '';
+  sliceBtn.disabled = false;
+}
+
+function setStatus(msg, pct, isError = false, isSuccess = false) {
+  statusText.textContent = msg;
+  statusText.className = 'status-text' + (isError ? ' error' : '') + (isSuccess ? ' success' : '');
+  if (pct >= 0) progressFill.style.width = pct + '%';
+}
+
+function getWavDuration(data) {
+  // Read WAV header to extract duration
+  const view = new DataView(data.buffer || data);
+  try {
+    // "data" chunk: find it after "fmt " chunk
+    const sampleRate = view.getUint32(24, true);
+    const byteRate = view.getUint32(28, true);
+    // Find data chunk size
+    let offset = 12;
+    while (offset < data.length - 8) {
+      const id = String.fromCharCode(data[offset], data[offset+1], data[offset+2], data[offset+3]);
+      const size = view.getUint32(offset + 4, true);
+      if (id === 'data') {
+        return size / byteRate;
+      }
+      offset += 8 + size;
+      if (size % 2 !== 0) offset++; // WAV chunks are word-aligned
+    }
+  } catch {}
+  return 0;
+}
+
+// ── Download ──
+downloadBtn.addEventListener('click', () => {
+  if (!zipBlob) return;
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(zipBlob);
+  a.download = 'sl-sound-clips.zip';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+</script>
+
+</body>
+</html>
