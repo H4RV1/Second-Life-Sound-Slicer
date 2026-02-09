@@ -525,10 +525,23 @@ async function initFFmpeg() {
     });
 
     loadingText.textContent = 'Downloading audio engine (~32 MB)…';
-    await ffmpeg.load({
-      coreURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
-      wasmURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm',
-    });
+
+    // Try multi-threaded core first (needs SharedArrayBuffer / crossOriginIsolated)
+    try {
+      await ffmpeg.load({
+        coreURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
+        wasmURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm',
+      });
+    } catch (mtErr) {
+      console.warn('Multi-threaded core failed, trying single-threaded fallback…', mtErr);
+      loadingText.textContent = 'Loading single-threaded engine…';
+      // Single-threaded core does NOT require SharedArrayBuffer
+      ffmpeg = new FFmpeg();
+      await ffmpeg.load({
+        coreURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.12.6/dist/umd/ffmpeg-core.js',
+        wasmURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.12.6/dist/umd/ffmpeg-core.wasm',
+      });
+    }
 
     ffmpegLoaded = true;
     loadingOverlay.classList.add('hidden');
@@ -538,7 +551,14 @@ async function initFFmpeg() {
     console.error('FFmpeg load error:', err);
   }
 }
-initFFmpeg();
+
+// Wait for coi-serviceworker to reload; if page is already isolated, init immediately
+if (window.crossOriginIsolated || navigator.serviceWorker?.controller) {
+  initFFmpeg();
+} else {
+  // Give coi-serviceworker a moment to trigger reload, then init anyway with ST fallback
+  setTimeout(initFFmpeg, 1500);
+}
 
 // ── File Handling ──
 dropzone.addEventListener('click', () => fileInput.click());
