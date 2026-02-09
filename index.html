@@ -9,9 +9,14 @@
 <!-- Enable SharedArrayBuffer on GitHub Pages (required by ffmpeg.wasm) -->
 <script src="https://cdn.jsdelivr.net/npm/coi-serviceworker@0.1.7/coi-serviceworker.min.js"></script>
 
-<!-- FFmpeg WASM -->
+<!-- FFmpeg WASM (0.12.x for modern browsers, 0.11.x fallback) -->
 <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/util.min.js"></script>
+<script>
+// Detect if we can use 0.12.x (needs SharedArrayBuffer) — loaded above
+// If not, we'll dynamically load 0.11.x in initFFmpeg()
+window._useClassicFFmpeg = !window.crossOriginIsolated;
+</script>
 <!-- JSZip for download -->
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
@@ -515,32 +520,41 @@ const loadingOverlay = $('loadingOverlay');
 const loadingText    = $('loadingText');
 
 // ── FFmpeg Init ──
+let useClassicAPI = false;
+
+async function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
 async function initFFmpeg() {
   try {
-    const { FFmpeg } = FFmpegWASM;
-    ffmpeg = new FFmpeg();
-
-    ffmpeg.on('log', ({ message }) => {
-      // console.log('[ffmpeg]', message);
-    });
-
     loadingText.textContent = 'Downloading audio engine (~32 MB)…';
 
-    // Try multi-threaded core first (needs SharedArrayBuffer / crossOriginIsolated)
-    try {
+    if (window.crossOriginIsolated && window.FFmpegWASM) {
+      // Modern 0.12.x API (SharedArrayBuffer available)
+      const { FFmpeg } = FFmpegWASM;
+      ffmpeg = new FFmpeg();
+      ffmpeg.on('log', ({ message }) => { /* console.log('[ffmpeg]', message); */ });
       await ffmpeg.load({
         coreURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js',
         wasmURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm',
       });
-    } catch (mtErr) {
-      console.warn('Multi-threaded core failed, trying single-threaded fallback…', mtErr);
-      loadingText.textContent = 'Loading single-threaded engine…';
-      // Single-threaded core does NOT require SharedArrayBuffer
-      ffmpeg = new FFmpeg();
-      await ffmpeg.load({
-        coreURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.12.6/dist/umd/ffmpeg-core.js',
-        wasmURL: 'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.12.6/dist/umd/ffmpeg-core.wasm',
-      });
+      useClassicAPI = false;
+    } else {
+      // Fallback: 0.11.x API (no SharedArrayBuffer needed)
+      loadingText.textContent = 'Loading compatible audio engine…';
+      await loadScript('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js');
+      const { createFFmpeg, fetchFile: ff } = FFmpeg;
+      ffmpeg = createFFmpeg({ log: false });
+      window._fetchFileClassic = ff;
+      await ffmpeg.load();
+      useClassicAPI = true;
     }
 
     ffmpegLoaded = true;
@@ -552,13 +566,8 @@ async function initFFmpeg() {
   }
 }
 
-// Wait for coi-serviceworker to reload; if page is already isolated, init immediately
-if (window.crossOriginIsolated || navigator.serviceWorker?.controller) {
-  initFFmpeg();
-} else {
-  // Give coi-serviceworker a moment to trigger reload, then init anyway with ST fallback
-  setTimeout(initFFmpeg, 1500);
-}
+// Give coi-serviceworker time to potentially reload the page and establish isolation
+setTimeout(initFFmpeg, 800);
 
 // ── File Handling ──
 dropzone.addEventListener('click', () => fileInput.click());
@@ -766,23 +775,32 @@ async function startSlicing() {
       // Write input to ffmpeg virtual FS
       const inputData = new Uint8Array(await entry.file.arrayBuffer());
       const inputName = `input_${fi}` + fileName.substring(fileName.lastIndexOf('.'));
-      await ffmpeg.writeFile(inputName, inputData);
+
+      if (useClassicAPI) {
+        ffmpeg.FS('writeFile', inputName, inputData);
+      } else {
+        await ffmpeg.writeFile(inputName, inputData);
+      }
 
       // Get duration via probe — convert to WAV first to know length
       setStatus(`[${fi + 1}/${totalFiles}] Converting ${fileName}…`, 0);
 
       const wavName = `full_${fi}.wav`;
-      await ffmpeg.exec([
+      const convertArgs = [
         '-i', inputName,
         '-ar', String(SL_SAMPLE_RATE),
         '-ac', String(SL_CHANNELS),
         '-sample_fmt', 's16',
         '-f', 'wav',
         '-y', wavName
-      ]);
+      ];
+      if (useClassicAPI) { await ffmpeg.run(...convertArgs); }
+      else { await ffmpeg.exec(convertArgs); }
 
       // Read WAV to get duration from header
-      const wavData = await ffmpeg.readFile(wavName);
+      const wavData = useClassicAPI
+        ? ffmpeg.FS('readFile', wavName)
+        : await ffmpeg.readFile(wavName);
       const wavDuration = getWavDuration(wavData);
       const clipMs = clipLen * 1000;
       const numClips = Math.ceil((wavDuration * 1000) / clipMs);
@@ -801,7 +819,7 @@ async function startSlicing() {
         const pct = Math.round(((fi + (c / numClips)) / totalFiles) * 100);
         setStatus(`[${fi + 1}/${totalFiles}] Exporting ${clipFileName} (${c + 1}/${numClips})`, pct);
 
-        await ffmpeg.exec([
+        const sliceArgs = [
           '-i', wavName,
           '-ss', String(startSec),
           '-t', String(actualDur),
@@ -810,23 +828,33 @@ async function startSlicing() {
           '-sample_fmt', 's16',
           '-f', 'wav',
           '-y', outName
-        ]);
+        ];
+        if (useClassicAPI) { await ffmpeg.run(...sliceArgs); }
+        else { await ffmpeg.exec(sliceArgs); }
 
-        const clipData = await ffmpeg.readFile(outName);
+        const clipData = useClassicAPI
+          ? ffmpeg.FS('readFile', outName)
+          : await ffmpeg.readFile(outName);
         zip.file(`${folderName}/${clipFileName}`, clipData);
         notecardContent += `// ${clipFileName} -> <paste UUID here>\n`;
         totalOutputClips++;
 
         // Clean up clip from virtual FS
-        await ffmpeg.deleteFile(outName);
+        if (useClassicAPI) { ffmpeg.FS('unlink', outName); }
+        else { await ffmpeg.deleteFile(outName); }
       }
 
       // Add notecard template
       zip.file(`${folderName}/_notecard_template.txt`, notecardContent);
 
       // Clean up
-      await ffmpeg.deleteFile(inputName);
-      await ffmpeg.deleteFile(wavName);
+      if (useClassicAPI) {
+        ffmpeg.FS('unlink', inputName);
+        ffmpeg.FS('unlink', wavName);
+      } else {
+        await ffmpeg.deleteFile(inputName);
+        await ffmpeg.deleteFile(wavName);
+      }
 
     } catch (err) {
       console.error(`Error slicing ${fileName}:`, err);
