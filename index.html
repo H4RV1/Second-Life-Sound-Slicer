@@ -501,8 +501,7 @@ input:focus { border-color: var(--accent); }
   <!-- FOOTER -->
   <div class="footer">
     SL Sound Slicer · Files never leave your computer ·
-    Powered by Web Audio API ·
-    <a href="https://github.com/H4RV1/Second-Life-Sound-Slicer" target="_blank">GitHub</a>
+    Powered by Web Audio API
   </div>
 
 </div>
@@ -869,7 +868,13 @@ async function startSlicing() {
 
         // Encode clip as WAV and add to both ZIPs
         const wavBytes = encodeWAV(clipSamples, SL_SAMPLE_RATE);
-        zip.file(`${folderName}/${clipFileName}`, wavBytes);
+        // Single song: clips at ZIP root (ZIP filename = folder name on extract)
+        // Multi song: subfolder per song to separate them
+        if (totalFiles === 1) {
+          zip.file(clipFileName, wavBytes);
+        } else {
+          zip.file(`${folderName}/${clipFileName}`, wavBytes);
+        }
         songZip.file(clipFileName, wavBytes);
         totalOutputClips++;
 
