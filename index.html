@@ -9,14 +9,6 @@
 <!-- Enable SharedArrayBuffer on GitHub Pages (required by ffmpeg.wasm) -->
 <script src="https://cdn.jsdelivr.net/npm/coi-serviceworker@0.1.7/coi-serviceworker.min.js"></script>
 
-<!-- FFmpeg WASM (0.12.x for modern browsers, 0.11.x fallback) -->
-<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/util.min.js"></script>
-<script>
-// Detect if we can use 0.12.x (needs SharedArrayBuffer) — loaded above
-// If not, we'll dynamically load 0.11.x in initFFmpeg()
-window._useClassicFFmpeg = !window.crossOriginIsolated;
-</script>
 <!-- JSZip for download -->
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
@@ -534,10 +526,11 @@ async function loadScript(src) {
 
 async function initFFmpeg() {
   try {
-    loadingText.textContent = 'Downloading audio engine (~32 MB)…';
-
-    if (window.crossOriginIsolated && window.FFmpegWASM) {
+    if (window.crossOriginIsolated) {
       // Modern 0.12.x API (SharedArrayBuffer available)
+      loadingText.textContent = 'Downloading audio engine (~32 MB)…';
+      await loadScript('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.min.js');
+      await loadScript('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/util.min.js');
       const { FFmpeg } = FFmpegWASM;
       ffmpeg = new FFmpeg();
       ffmpeg.on('log', ({ message }) => { /* console.log('[ffmpeg]', message); */ });
@@ -548,11 +541,10 @@ async function initFFmpeg() {
       useClassicAPI = false;
     } else {
       // Fallback: 0.11.x API (no SharedArrayBuffer needed)
-      loadingText.textContent = 'Loading compatible audio engine…';
+      loadingText.textContent = 'Loading audio engine…';
       await loadScript('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js');
-      const { createFFmpeg, fetchFile: ff } = FFmpeg;
+      const { createFFmpeg } = FFmpeg;
       ffmpeg = createFFmpeg({ log: false });
-      window._fetchFileClassic = ff;
       await ffmpeg.load();
       useClassicAPI = true;
     }
