@@ -856,8 +856,10 @@ async function startSlicing() {
       // Per-song zip (for individual downloads)
       const songZip = new JSZip();
 
-      // Build notecard template
-      let notecardContent = `${clipLen}\n`;
+      // Build notecard template — line 1: clip length, line 2: last clip length
+      const lastClipSamples = totalSamples - (numClips - 1) * samplesPerClip;
+      const lastClipDur = lastClipSamples / SL_SAMPLE_RATE;
+      let notecardContent = `${clipLen}\n${lastClipDur.toFixed(6)}\n`;
 
       for (let c = 0; c < numClips; c++) {
         const startSample = c * samplesPerClip;
