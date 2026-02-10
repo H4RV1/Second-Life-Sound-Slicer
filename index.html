@@ -10,6 +10,9 @@
 <!-- JSZip for download -->
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 
+<!-- Supabase JS client (analytics) -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
 <style>
 /* ══════════════════════════════════════════════
    RESET & BASE
@@ -490,6 +493,7 @@ input:focus { border-color: var(--accent); }
   <div class="action-row" style="margin-top: 8px;">
     <button class="btn primary" id="sliceBtn" disabled>🔪 Slice Songs</button>
     <button class="btn secondary" id="downloadBtn" style="display:none">💾 Download ZIP</button>
+    <a href="dashboard.html" class="btn secondary" style="margin-left:auto">📊 Dashboard</a>
   </div>
 
   <!-- PER-SONG DOWNLOADS (multiple songs) -->
@@ -501,7 +505,8 @@ input:focus { border-color: var(--accent); }
   <!-- FOOTER -->
   <div class="footer">
     SL Sound Slicer · Files never leave your computer ·
-    Powered by Web Audio API
+    Powered by Web Audio API ·
+    <a href="dashboard.html">Analytics</a>
   </div>
 
 </div>
@@ -516,6 +521,51 @@ const SL_CHANNELS    = 1;
 const SL_BIT_DEPTH   = 16;
 const SL_UPLOAD_COST = 10;
 const MAX_SAMPLES    = 1323000;
+
+// ============================================================================
+// SUPABASE ANALYTICS — Replace with your project credentials
+// ============================================================================
+const SUPABASE_URL = 'https://fneinmxczncuhuhhfenn.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZuZWlubXhjem5jdWh1aGhmZW5uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2ODA4ODIsImV4cCI6MjA4NjI1Njg4Mn0.SoMB092PX0uI5Aixb011lCEW1QIMe_Dt8uBpZfv_ogU';
+
+let sb = null;  // Supabase client (null if not configured)
+try {
+  if (SUPABASE_URL !== 'YOUR_SUPABASE_URL' && window.supabase) {
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  }
+} catch (e) { console.warn('Analytics disabled:', e); }
+
+// Session ID — persists per browser session
+const SESSION_ID = sessionStorage.getItem('slicer_sid') ||
+  (() => { const id = crypto.randomUUID(); sessionStorage.setItem('slicer_sid', id); return id; })();
+
+// Log page visit (once per session)
+if (sb && !sessionStorage.getItem('slicer_visited')) {
+  sessionStorage.setItem('slicer_visited', '1');
+  sb.from('page_visits').insert({
+    session_id: SESSION_ID,
+    page: 'slicer',
+    referrer: document.referrer || '',
+    user_agent: navigator.userAgent,
+    screen_width: screen.width
+  }).then(() => {}).catch(() => {});
+}
+
+// Log a slice event to Supabase (fire-and-forget, never blocks slicing)
+function logSliceEvent(songName, artist, inputFormat, durationSecs, clipCount, clipLength) {
+  if (!sb) return;
+  sb.from('slice_events').insert({
+    session_id: SESSION_ID,
+    song_name: songName || '',
+    artist: artist || '',
+    input_format: inputFormat || '',
+    duration_secs: durationSecs || 0,
+    clip_count: clipCount || 0,
+    clip_length: clipLength || 29.98,
+    user_agent: navigator.userAgent,
+    screen_width: screen.width
+  }).then(() => {}).catch(err => console.warn('Analytics log failed:', err));
+}
 
 // ── State ──
 let files    = [];   // { file: File, duration: number|null }
@@ -885,6 +935,10 @@ async function startSlicing() {
       // Generate per-song zip
       const songBlob = await songZip.generateAsync({ type: 'blob' });
       songZips.push({ name: folderName + '.zip', blob: songBlob, clips: numClips });
+
+      // ── Log to analytics (fire-and-forget) ──
+      const ext = fileName.split('.').pop().toLowerCase();
+      logSliceEvent(song || stem, artist, ext, duration, numClips, clipLen);
 
     } catch (err) {
       console.error(`Error slicing ${fileName}:`, err);

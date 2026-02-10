@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SL Sound Slicer — Analytics Dashboard</title>
+<meta name="description" content="Usage analytics for the SL Sound Slicer tool.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%2389b4fa'/%3E%3Cstop offset='100%25' stop-color='%23b4befe'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='30' fill='%231e1e2e'/%3E%3Cpath d='M26 18v20a8 8 0 1 0 4 6.9V26l12-4v14a8 8 0 1 0 4 6.9V16L26 22z' fill='url(%23g)' transform='translate(-4,-2) scale(0.9)'/%3E%3Cpath d='M44 14L20 50' stroke='%23f38ba8' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+
+<!-- Supabase JS client -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
+<style>
+/* ══════════════════════════════════════════════
+   RESET & BASE (same Catppuccin Mocha theme)
+   ══════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #11111b;
+  --card:     #1e1e2e;
+  --surface:  #282840;
+  --input:    #313244;
+  --border:   #3a3a52;
+  --text:     #cdd6f4;
+  --subtext:  #a6adc8;
+  --dim:      #6c7086;
+  --accent:   #89b4fa;
+  --accent2:  #b4d0fb;
+  --green:    #a6e3a1;
+  --red:      #f38ba8;
+  --yellow:   #f9e2af;
+  --peach:    #fab387;
+  --mauve:    #cba6f7;
+  --teal:     #94e2d5;
+  --font:     'Segoe UI', system-ui, -apple-system, sans-serif;
+  --mono:     'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+}
+
+html { font-size: 16px; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  min-height: 100vh;
+  line-height: 1.5;
+}
+
+.container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 32px 20px 48px;
+}
+
+/* ══════════════════════════════════════════════
+   HEADER
+   ══════════════════════════════════════════════ */
+.header { margin-bottom: 28px; }
+.header h1 {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.header h1 span { margin-right: 10px; }
+.header p {
+  color: var(--dim);
+  font-size: 0.9rem;
+  margin-top: 4px;
+}
+.header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.header-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* ══════════════════════════════════════════════
+   CARDS
+   ══════════════════════════════════════════════ */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px 20px;
+  margin-bottom: 12px;
+}
+.card-title {
+  color: var(--accent);
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ══════════════════════════════════════════════
+   STAT GRID  (top metrics row)
+   ══════════════════════════════════════════════ */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 10px;
+}
+.stat-box {
+  background: var(--surface);
+  border-radius: 6px;
+  padding: 14px 16px;
+  text-align: center;
+}
+.stat-value {
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.stat-label {
+  color: var(--dim);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 4px;
+}
+
+/* ══════════════════════════════════════════════
+   CHART
+   ══════════════════════════════════════════════ */
+.chart-canvas {
+  width: 100%;
+  height: 160px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.chart-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.chart-tab {
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--input);
+  color: var(--subtext);
+  transition: all 0.15s;
+}
+.chart-tab:hover { border-color: var(--accent); color: var(--accent); }
+.chart-tab.active {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+.chart-note {
+  color: var(--dim);
+  font-size: 0.78rem;
+  margin-top: 6px;
+}
+
+/* ══════════════════════════════════════════════
+   TWO-COLUMN LAYOUT
+   ══════════════════════════════════════════════ */
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+/* ══════════════════════════════════════════════
+   LIST ROWS  (songs, artists, formats, users)
+   ══════════════════════════════════════════════ */
+.list-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  border-radius: 4px;
+}
+.list-row:nth-child(odd) { background: var(--surface); }
+.list-row .rank { color: var(--dim); width: 24px; font-size: 0.8rem; }
+.list-row .name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0 8px; }
+.list-row .metric { color: var(--accent); font-weight: 600; font-size: 0.82rem; white-space: nowrap; }
+
+/* Format bar */
+.fmt-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; }
+.fmt-label { color: var(--accent); font-family: var(--mono); font-weight: 700; font-size: 0.85rem; width: 50px; }
+.fmt-bar-track { flex: 1; height: 8px; background: var(--input); border-radius: 99px; overflow: hidden; }
+.fmt-bar-fill { height: 100%; border-radius: 99px; transition: width 0.3s; }
+.fmt-pct { color: var(--subtext); font-size: 0.8rem; width: 60px; text-align: right; }
+
+/* ══════════════════════════════════════════════
+   RECENT TABLE
+   ══════════════════════════════════════════════ */
+.table-header {
+  display: flex;
+  padding: 6px 10px;
+  background: var(--surface);
+  border-radius: 4px 4px 0 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.table-header span { flex: 1; }
+.table-body {
+  max-height: 260px;
+  overflow-y: auto;
+}
+.table-row {
+  display: flex;
+  padding: 5px 10px;
+  font-size: 0.82rem;
+  align-items: center;
+}
+.table-row:nth-child(odd) { background: var(--surface); }
+.table-row span { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.table-row .col-date { color: var(--subtext); font-family: var(--mono); font-size: 0.78rem; }
+.table-row .col-song { color: var(--text); }
+.table-row .col-artist { color: var(--subtext); }
+.table-row .col-dur { color: var(--peach); }
+.table-row .col-clips { color: var(--green); font-weight: 600; }
+.table-row .col-fmt { color: var(--dim); font-family: var(--mono); font-size: 0.78rem; }
+
+/* ══════════════════════════════════════════════
+   BUTTONS
+   ══════════════════════════════════════════════ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  font-family: var(--font);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-decoration: none;
+}
+.btn.secondary { background: var(--input); color: var(--subtext); }
+.btn.secondary:hover { background: var(--surface); color: var(--text); }
+.btn.accent { background: var(--accent); color: var(--bg); }
+.btn.accent:hover { background: var(--accent2); }
+
+/* ══════════════════════════════════════════════
+   LOADING
+   ══════════════════════════════════════════════ */
+.loading {
+  text-align: center;
+  color: var(--dim);
+  padding: 32px;
+  font-size: 0.9rem;
+}
+
+/* ══════════════════════════════════════════════
+   FOOTER
+   ══════════════════════════════════════════════ */
+.footer {
+  margin-top: 36px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  color: var(--dim);
+  font-size: 0.78rem;
+  text-align: center;
+}
+.footer a { color: var(--accent); text-decoration: none; }
+.footer a:hover { text-decoration: underline; }
+
+/* ══════════════════════════════════════════════
+   RESPONSIVE
+   ══════════════════════════════════════════════ */
+@media (max-width: 600px) {
+  .two-col { grid-template-columns: 1fr; }
+  .header h1 { font-size: 1.4rem; }
+  .container { padding: 20px 14px 40px; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-row">
+      <div>
+        <h1><span>📊</span> Analytics Dashboard</h1>
+        <p>SL Sound Slicer usage statistics</p>
+      </div>
+      <div class="header-actions">
+        <button class="btn secondary" id="refreshBtn" onclick="loadDashboard()">🔄 Refresh</button>
+        <a href="index.html" class="btn secondary">🎵 Back to Slicer</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- LOADING STATE -->
+  <div class="loading" id="loadingState">Loading analytics…</div>
+
+  <!-- DASHBOARD CONTENT (hidden until loaded) -->
+  <div id="dashboardContent" style="display:none">
+
+    <!-- OVERVIEW STATS -->
+    <div class="card">
+      <div class="card-title">⚡ OVERVIEW</div>
+      <div class="stat-grid" id="statGrid"></div>
+    </div>
+
+    <!-- ACTIVITY CHART -->
+    <div class="card">
+      <div class="card-title">📈 ACTIVITY</div>
+      <div class="chart-tabs" id="chartTabs">
+        <button class="chart-tab active" data-mode="daily">Last 30 Days</button>
+        <button class="chart-tab" data-mode="monthly">Monthly</button>
+      </div>
+      <canvas class="chart-canvas" id="chartCanvas"></canvas>
+      <div class="chart-note" id="chartNote"></div>
+    </div>
+
+    <!-- TOP SONGS + TOP ARTISTS -->
+    <div class="two-col">
+      <div class="card">
+        <div class="card-title">🎵 TOP SONGS</div>
+        <div id="topSongs"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">🎤 TOP ARTISTS</div>
+        <div id="topArtists"></div>
+      </div>
+    </div>
+
+    <!-- FORMATS + CLIP LENGTHS -->
+    <div class="two-col">
+      <div class="card">
+        <div class="card-title">📀 INPUT FORMATS</div>
+        <div id="formatBreakdown"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">⏱ CLIP LENGTHS USED</div>
+        <div id="clipLengths"></div>
+      </div>
+    </div>
+
+    <!-- RECENT ACTIVITY -->
+    <div class="card">
+      <div class="card-title">🕐 RECENT ACTIVITY</div>
+      <div class="table-header">
+        <span>Date</span>
+        <span>Song</span>
+        <span>Artist</span>
+        <span>Duration</span>
+        <span>Clips</span>
+        <span>Format</span>
+      </div>
+      <div class="table-body" id="recentTable"></div>
+    </div>
+
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    SL Sound Slicer Analytics · <a href="index.html">Back to Slicer</a>
+  </div>
+
+</div>
+
+<script>
+// ============================================================================
+// SUPABASE CONFIG — Replace with your project credentials
+// ============================================================================
+const SUPABASE_URL = 'https://fneinmxczncuhuhhfenn.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZuZWlubXhjem5jdWh1aGhmZW5uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA2ODA4ODIsImV4cCI6MjA4NjI1Njg4Mn0.SoMB092PX0uI5Aixb011lCEW1QIMe_Dt8uBpZfv_ogU';
+
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ============================================================================
+// DASHBOARD
+// ============================================================================
+let chartMode = 'daily';
+
+// ── Chart tab switching ──
+document.querySelectorAll('.chart-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.chart-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    chartMode = tab.dataset.mode;
+    renderChart();
+  });
+});
+
+// ── Color palette for format bars ──
+const FORMAT_COLORS = ['#89b4fa', '#a6e3a1', '#fab387', '#f9e2af', '#cba6f7', '#94e2d5', '#f38ba8'];
+
+// ── Main data store ──
+let sliceData = [];
+let visitData = [];
+
+// ── Load all dashboard data ──
+async function loadDashboard() {
+  const loadingEl = document.getElementById('loadingState');
+  const contentEl = document.getElementById('dashboardContent');
+
+  loadingEl.style.display = '';
+  contentEl.style.display = 'none';
+
+  try {
+    // Fetch all slice events (last 10,000)
+    const { data: slices, error: sliceErr } = await supabase
+      .from('slice_events')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(10000);
+
+    if (sliceErr) throw sliceErr;
+    sliceData = slices || [];
+
+    // Fetch page visits
+    const { data: visits, error: visitErr } = await supabase
+      .from('page_visits')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(10000);
+
+    visitData = visits || [];
+
+    renderOverview();
+    renderChart();
+    renderTopSongs();
+    renderTopArtists();
+    renderFormats();
+    renderClipLengths();
+    renderRecent();
+
+    loadingEl.style.display = 'none';
+    contentEl.style.display = '';
+  } catch (err) {
+    loadingEl.textContent = `Error loading analytics: ${err.message}`;
+    console.error(err);
+  }
+}
+
+// ── Overview stats ──
+function renderOverview() {
+  const grid = document.getElementById('statGrid');
+  const totalSlices = sliceData.length;
+  const totalClips = sliceData.reduce((s, e) => s + (e.clip_count || 0), 0);
+  const totalDur = sliceData.reduce((s, e) => s + (e.duration_secs || 0), 0);
+  const uniqueSessions = new Set(sliceData.map(e => e.session_id)).size;
+  const uniqueVisitors = new Set(visitData.map(v => v.session_id)).size;
+  const uploadCost = totalClips * 10;
+
+  // Format duration
+  const hrs = Math.floor(totalDur / 3600);
+  const mins = Math.floor((totalDur % 3600) / 60);
+  const durStr = hrs > 0 ? `${hrs}h ${mins}m` : mins > 0 ? `${mins}m` : `${Math.floor(totalDur)}s`;
+
+  const stats = [
+    { label: 'Page Visits', value: uniqueVisitors || visitData.length, color: 'var(--teal)' },
+    { label: 'Users (Sessions)', value: uniqueSessions, color: 'var(--mauve)' },
+    { label: 'Songs Sliced', value: totalSlices, color: 'var(--accent)' },
+    { label: 'Total Clips', value: totalClips.toLocaleString(), color: 'var(--green)' },
+    { label: 'Audio Processed', value: durStr, color: 'var(--peach)' },
+    { label: 'Est. Upload Cost', value: `${uploadCost.toLocaleString()} L$`, color: 'var(--yellow)' },
+  ];
+
+  grid.innerHTML = stats.map(s => `
+    <div class="stat-box">
+      <div class="stat-value" style="color:${s.color}">${s.value}</div>
+      <div class="stat-label">${s.label}</div>
+    </div>
+  `).join('');
+}
+
+// ── Activity chart (Canvas) ──
+function renderChart() {
+  const canvas = document.getElementById('chartCanvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+
+  // Set canvas size
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width;
+  const H = rect.height;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // Aggregate data by date or month
+  const buckets = {};
+
+  if (chartMode === 'daily') {
+    // Last 30 days
+    const now = new Date();
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0, 10);
+      buckets[key] = 0;
+    }
+    sliceData.forEach(e => {
+      const key = (e.created_at || '').slice(0, 10);
+      if (key in buckets) buckets[key]++;
+    });
+  } else {
+    // Last 12 months
+    const now = new Date();
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = d.toISOString().slice(0, 7);
+      buckets[key] = 0;
+    }
+    sliceData.forEach(e => {
+      const key = (e.created_at || '').slice(0, 7);
+      if (key in buckets) buckets[key]++;
+    });
+  }
+
+  const keys = Object.keys(buckets);
+  const vals = Object.values(buckets);
+  const maxVal = Math.max(...vals, 1);
+  const total = vals.reduce((a, b) => a + b, 0);
+
+  // Layout
+  const padL = 36, padR = 12, padT = 12, padB = 24;
+  const chartW = W - padL - padR;
+  const chartH = H - padT - padB;
+  const barGap = 2;
+  const barW = Math.max(3, (chartW - barGap * keys.length) / keys.length);
+
+  // Y gridlines
+  ctx.strokeStyle = '#3a3a52';
+  ctx.lineWidth = 0.5;
+  ctx.setLineDash([2, 4]);
+  ctx.fillStyle = '#6c7086';
+  ctx.font = '9px Segoe UI';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + chartH * i / 4;
+    ctx.beginPath();
+    ctx.moveTo(padL, y);
+    ctx.lineTo(W - padR, y);
+    ctx.stroke();
+    const v = Math.round(maxVal * (4 - i) / 4);
+    ctx.fillText(v, padL - 5, y + 3);
+  }
+  ctx.setLineDash([]);
+
+  // Bars
+  keys.forEach((key, i) => {
+    const val = vals[i];
+    const barH = chartH * val / maxVal;
+    const x = padL + i * (barW + barGap);
+    const y = padT + chartH - barH;
+
+    // Color intensity
+    const intensity = val / maxVal;
+    const r = Math.round(0x89 + (0xb4 - 0x89) * intensity);
+    const g = Math.round(0xb4 + (0xd0 - 0xb4) * intensity);
+    ctx.fillStyle = `rgb(${r}, ${g}, 250)`;
+    ctx.fillRect(x, y, barW, barH);
+
+    // X labels (show every Nth)
+    const skip = Math.max(1, Math.floor(keys.length / 10));
+    if (i % skip === 0) {
+      ctx.fillStyle = '#6c7086';
+      ctx.font = '8px Segoe UI';
+      ctx.textAlign = 'center';
+      const label = chartMode === 'daily' ? key.slice(5) : key;
+      ctx.fillText(label, x + barW / 2, padT + chartH + 14);
+    }
+  });
+
+  document.getElementById('chartNote').textContent =
+    `Total: ${total} slices in this period`;
+}
+
+// ── Top Songs ──
+function renderTopSongs() {
+  const el = document.getElementById('topSongs');
+  const counts = {};
+  sliceData.forEach(e => {
+    const name = (e.song_name || '').trim();
+    if (!name) return;
+    const key = name.toLowerCase();
+    if (!counts[key]) counts[key] = { name, count: 0 };
+    counts[key].count++;
+  });
+
+  const sorted = Object.values(counts).sort((a, b) => b.count - a.count).slice(0, 10);
+  if (sorted.length === 0) {
+    el.innerHTML = '<div style="color:var(--dim);font-size:0.85rem">No songs yet</div>';
+    return;
+  }
+
+  el.innerHTML = sorted.map((s, i) => `
+    <div class="list-row">
+      <span class="rank">${i + 1}.</span>
+      <span class="name">${esc(s.name)}</span>
+      <span class="metric">${s.count}×</span>
+    </div>
+  `).join('');
+}
+
+// ── Top Artists ──
+function renderTopArtists() {
+  const el = document.getElementById('topArtists');
+  const counts = {};
+  sliceData.forEach(e => {
+    const artist = (e.artist || '').trim();
+    if (!artist) return;
+    const key = artist.toLowerCase();
+    if (!counts[key]) counts[key] = { artist, count: 0, songs: new Set() };
+    counts[key].count++;
+    if (e.song_name) counts[key].songs.add(e.song_name.toLowerCase());
+  });
+
+  const sorted = Object.values(counts).sort((a, b) => b.count - a.count).slice(0, 10);
+  if (sorted.length === 0) {
+    el.innerHTML = '<div style="color:var(--dim);font-size:0.85rem">No artists yet</div>';
+    return;
+  }
+
+  el.innerHTML = sorted.map((a, i) => `
+    <div class="list-row">
+      <span class="rank">${i + 1}.</span>
+      <span class="name">${esc(a.artist)}</span>
+      <span class="metric">${a.songs.size} songs · ${a.count}×</span>
+    </div>
+  `).join('');
+}
+
+// ── Format Breakdown ──
+function renderFormats() {
+  const el = document.getElementById('formatBreakdown');
+  const counts = {};
+  sliceData.forEach(e => {
+    const fmt = (e.input_format || '').toUpperCase();
+    if (!fmt) return;
+    counts[fmt] = (counts[fmt] || 0) + 1;
+  });
+
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const total = sorted.reduce((s, [, c]) => s + c, 0);
+
+  if (sorted.length === 0) {
+    el.innerHTML = '<div style="color:var(--dim);font-size:0.85rem">No data yet</div>';
+    return;
+  }
+
+  el.innerHTML = sorted.map(([fmt, count], i) => {
+    const pct = total > 0 ? (count / total * 100) : 0;
+    const color = FORMAT_COLORS[i % FORMAT_COLORS.length];
+    return `
+      <div class="fmt-row">
+        <span class="fmt-label" style="color:${color}">.${fmt}</span>
+        <div class="fmt-bar-track">
+          <div class="fmt-bar-fill" style="width:${pct}%;background:${color}"></div>
+        </div>
+        <span class="fmt-pct">${count} (${pct.toFixed(0)}%)</span>
+      </div>
+    `;
+  }).join('');
+}
+
+// ── Clip Lengths Used ──
+function renderClipLengths() {
+  const el = document.getElementById('clipLengths');
+  const counts = {};
+  sliceData.forEach(e => {
+    const cl = e.clip_length || 29.98;
+    const key = cl.toFixed(2);
+    counts[key] = (counts[key] || 0) + 1;
+  });
+
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  const total = sorted.reduce((s, [, c]) => s + c, 0);
+
+  if (sorted.length === 0) {
+    el.innerHTML = '<div style="color:var(--dim);font-size:0.85rem">No data yet</div>';
+    return;
+  }
+
+  el.innerHTML = sorted.map(([len, count], i) => {
+    const pct = total > 0 ? (count / total * 100) : 0;
+    const color = FORMAT_COLORS[(i + 3) % FORMAT_COLORS.length];
+    return `
+      <div class="fmt-row">
+        <span class="fmt-label" style="color:${color}">${len}s</span>
+        <div class="fmt-bar-track">
+          <div class="fmt-bar-fill" style="width:${pct}%;background:${color}"></div>
+        </div>
+        <span class="fmt-pct">${count} (${pct.toFixed(0)}%)</span>
+      </div>
+    `;
+  }).join('');
+}
+
+// ── Recent Activity Table ──
+function renderRecent() {
+  const el = document.getElementById('recentTable');
+  const recent = sliceData.slice(0, 50);
+
+  if (recent.length === 0) {
+    el.innerHTML = '<div style="color:var(--dim);padding:20px;text-align:center;font-size:0.85rem">No activity yet — slice some songs!</div>';
+    return;
+  }
+
+  el.innerHTML = recent.map(r => {
+    const dt = new Date(r.created_at);
+    const dateStr = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+    const dur = r.duration_secs || 0;
+    const mins = Math.floor(dur / 60);
+    const secs = dur - mins * 60;
+    const durStr = mins > 0 ? `${mins}:${secs.toFixed(1).padStart(4, '0')}` : `${secs.toFixed(1)}s`;
+    const fmt = (r.input_format || '—').toUpperCase();
+
+    return `
+      <div class="table-row">
+        <span class="col-date">${dateStr}</span>
+        <span class="col-song">${esc(r.song_name || '—')}</span>
+        <span class="col-artist">${esc(r.artist || '—')}</span>
+        <span class="col-dur">${durStr}</span>
+        <span class="col-clips">${r.clip_count || 0}</span>
+        <span class="col-fmt">.${fmt}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+// ── Utility ──
+function esc(str) {
+  const d = document.createElement('div');
+  d.textContent = str;
+  return d.innerHTML;
+}
+
+// ── Responsive chart resize ──
+window.addEventListener('resize', () => {
+  if (sliceData.length > 0) renderChart();
+});
+
+// ── Boot ──
+loadDashboard();
+</script>
+
+</body>
+</html>
