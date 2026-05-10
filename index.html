@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SL Sound Slicer</title>
-<meta name="description" content="Split songs into Second Life compatible WAV clips directly in your browser. Free, no install required.">
+<title>Sound Slicer</title>
+<meta name="description" content="Split audio files into short WAV clips directly in your browser. Free, no install required.">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%2389b4fa'/%3E%3Cstop offset='100%25' stop-color='%23b4befe'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='30' fill='%231e1e2e'/%3E%3Cpath d='M26 18v20a8 8 0 1 0 4 6.9V26l12-4v14a8 8 0 1 0 4 6.9V16L26 22z' fill='url(%23g)' transform='translate(-4,-2) scale(0.9)'/%3E%3Cpath d='M44 14L20 50' stroke='%23f38ba8' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
 
 <!-- JSZip for download -->
@@ -408,8 +408,8 @@ input:focus { border-color: var(--accent); }
 
   <!-- HEADER -->
   <div class="header">
-    <h1><span>🎵</span> SL Sound Slicer</h1>
-    <p>Split songs into Second Life compatible audio clips — right in your browser.</p>
+    <h1><span>🎵</span> Sound Slicer</h1>
+    <p>Split audio files into short clips — right in your browser.</p>
     <div class="badge-row">
       <span class="badge accent">100% Client-Side</span>
       <span class="badge">No Upload</span>
@@ -454,7 +454,7 @@ input:focus { border-color: var(--accent); }
       <button class="preset-pill active" data-val="29.98">29.98s</button>
     </div>
 
-    <div class="format-note">Output: WAV 16-bit · 44.1 kHz · Mono (Second Life compatible)</div>
+    <div class="format-note">Output: WAV 16-bit · 44.1 kHz · Mono</div>
   </div>
 
   <!-- ESTIMATE -->
@@ -479,7 +479,7 @@ input:focus { border-color: var(--accent); }
         <div class="est-value cost" id="estCost">—</div>
       </div>
     </div>
-    <div class="est-note">Each clip costs 10 L$ to upload in Second Life</div>
+    <div class="est-note">Estimated upload cost based on 10 per clip</div>
   </div>
 
   <!-- PROGRESS -->
@@ -503,7 +503,7 @@ input:focus { border-color: var(--accent); }
 
   <!-- FOOTER -->
   <div class="footer">
-    SL Sound Slicer · Files never leave your computer ·
+    Sound Slicer · Files never leave your computer ·
     Powered by Web Audio API
   </div>
 
@@ -749,7 +749,7 @@ function refreshEstimate() {
   $('estSongs').textContent    = n;
   $('estDuration').textContent = mins > 0 ? `${mins}m ${secs.toFixed(1)}s` : `${secs.toFixed(1)}s`;
   $('estClips').textContent    = totalClips;
-  $('estCost').textContent     = `${cost.toLocaleString()} L$`;
+  $('estCost').textContent     = `${cost.toLocaleString()}`;
 }
 
 // ── Presets ──
@@ -949,7 +949,7 @@ async function startSlicing() {
     const stem = files[0].file.name.replace(/\.[^/.]+$/, '');
     zipFileName = sanitizeName(stem) + '.zip';
   } else {
-    zipFileName = `sl-sound-clips-${totalFiles}-songs.zip`;
+    zipFileName = `sound-clips-${totalFiles}-songs.zip`;
   }
   setStatus('Creating ZIP\u2026', 95);
   zipBlob = await zip.generateAsync({ type: 'blob' }, meta => {
@@ -974,7 +974,7 @@ function setStatus(msg, pct, isError = false, isSuccess = false) {
 }
 
 // ── Download ──
-let zipFileName = 'sl-sound-clips.zip';
+let zipFileName = 'sound-clips.zip';
 
 function triggerDownload(blob, name) {
   const a = document.createElement('a');
