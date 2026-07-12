@@ -981,14 +981,16 @@ function updatePresetHighlight() {
 // ENHANCE — AUDIO EFFECTS (Web Audio API)
 // ============================================================================
 // Mastering-style chain, split at 130 Hz so boosted bass gets its own
-// compressor and can't pump the rest of the mix:
+// compressor and can't pump the rest of the mix. Dynamics techniques
+// adapted from EffeTune (MIT — github.com/Frieve-A/effetune).
 //
-//   input → subsonic HP → ┬ low band  → bass gain → bass compressor ┐
-//                         └ high band → mud cut → presence → air    ┴ sum
-//   sum → glue compressor (punch) → loudness gain → limiter → soft clip
+//   input → subsonic HP → ┬ low band  → bass gain → bass comp (+ bass sat) ┐
+//                         └ high band → mud cut → presence → air (+ exciter)┴ sum
+//   sum → glue compressor (punch) → [JS] LUFS measure → loudness gain
+//       → [JS] lookahead brickwall limiter (guaranteed ceiling, no clipping)
 //
-// Loudness is auto-computed per song by default: measure peak/RMS headroom
-// and push as hard as possible while capping limiter drive at ~9 dB.
+// Loudness is auto-computed per song by default: K-weighted LUFS of the
+// shaped signal vs a -10 LUFS target, capped at ~9 dB of limiting.
 
 const FX = { enabled: false, autoLoud: true, loudness: 6, bass: 4, clarity: 2, punch: 3 };
 
@@ -1001,40 +1003,138 @@ const FX_PRESETS = {
 
 const dbToGain = db => Math.pow(10, db / 20);
 
-// Soft-clip transfer curve: exactly linear below 0.85, smooth tanh knee
-// above — shaves limiter overshoots transparently instead of hard-clipping.
-const SOFT_CLIP_CURVE = (() => {
-  const n = 8192, a = 0.85, curve = new Float32Array(n);
+// Saturation transfer curves (harmonic generation, technique adapted from
+// EffeTune's Exciter/Saturation plugins, MIT — github.com/Frieve-A/effetune)
+const mkTanhCurve = drive => {
+  const n = 4096, curve = new Float32Array(n), norm = Math.tanh(drive);
   for (let i = 0; i < n; i++) {
     const x = (i / (n - 1)) * 2 - 1;
-    const ax = Math.abs(x);
-    curve[i] = ax <= a ? x : Math.sign(x) * (a + (1 - a) * Math.tanh((ax - a) / (1 - a)));
+    curve[i] = Math.tanh(drive * x) / norm;
   }
   return curve;
-})();
+};
+const EXCITER_CURVE  = mkTanhCurve(2.5);  // adds presence harmonics to highs
+const BASS_SAT_CURVE = mkTanhCurve(1.8);  // adds warmth harmonics to lows
 
-// Max clean gain for this song: bring peaks ~6 dB into the limiter, lift
-// quiet tracks toward -11 dB RMS, but never demand more than ~9 dB of
-// limiting — past that, pumping becomes audible.
-function computeAutoGainDb(pcm) {
-  let peak = 0, sum = 0;
+// ── ITU-R BS.1770 K-weighted loudness (LUFS), simplified gating ──
+// Perceptual loudness measurement, as used by EffeTune's Auto Leveler.
+function rbjBiquad(type, f0, sr, Q, gainDb) {
+  const A = Math.pow(10, (gainDb || 0) / 40);
+  const w = 2 * Math.PI * f0 / sr, cw = Math.cos(w), sw = Math.sin(w);
+  const al = sw / (2 * Q);
+  let b0, b1, b2, a0, a1, a2;
+  if (type === 'highshelf') {
+    const sq = 2 * Math.sqrt(A) * al;
+    b0 = A * ((A + 1) + (A - 1) * cw + sq);
+    b1 = -2 * A * ((A - 1) + (A + 1) * cw);
+    b2 = A * ((A + 1) + (A - 1) * cw - sq);
+    a0 = (A + 1) - (A - 1) * cw + sq;
+    a1 = 2 * ((A - 1) - (A + 1) * cw);
+    a2 = (A + 1) - (A - 1) * cw - sq;
+  } else { // highpass
+    b0 = (1 + cw) / 2; b1 = -(1 + cw); b2 = (1 + cw) / 2;
+    a0 = 1 + al; a1 = -2 * cw; a2 = 1 - al;
+  }
+  return { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0 };
+}
+
+function measureLufs(pcm, sr) {
+  // K-weighting: +4 dB high shelf @ ~1682 Hz, then 38 Hz highpass (RLB)
+  const sh = rbjBiquad('highshelf', 1681.97, sr, 0.7071, 3.9998);
+  const hp = rbjBiquad('highpass', 38.135, sr, 0.5003, 0);
+  let sx1 = 0, sx2 = 0, sy1 = 0, sy2 = 0;   // shelf state
+  let hx1 = 0, hx2 = 0, hy1 = 0, hy2 = 0;   // highpass state
+  const blockLen = Math.round(sr * 0.4);     // 400 ms blocks
+  const blocks = [];
+  let acc = 0, cnt = 0;
   for (let i = 0; i < pcm.length; i++) {
-    const v = pcm[i];
-    const a = v < 0 ? -v : v;
+    const x = pcm[i];
+    const s = sh.b0 * x + sh.b1 * sx1 + sh.b2 * sx2 - sh.a1 * sy1 - sh.a2 * sy2;
+    sx2 = sx1; sx1 = x; sy2 = sy1; sy1 = s;
+    const y = hp.b0 * s + hp.b1 * hx1 + hp.b2 * hx2 - hp.a1 * hy1 - hp.a2 * hy2;
+    hx2 = hx1; hx1 = s; hy2 = hy1; hy1 = y;
+    acc += y * y; cnt++;
+    if (cnt === blockLen) { blocks.push(acc / cnt); acc = 0; cnt = 0; }
+  }
+  if (cnt > blockLen / 2) blocks.push(acc / cnt);
+  if (!blocks.length) return -70;
+  const toLufs = e => 10 * Math.log10(e || 1e-12) - 0.691;
+  // Absolute gate at -70 LUFS, then relative gate 10 LU below the mean
+  const abs = blocks.filter(e => toLufs(e) > -70);
+  if (!abs.length) return -70;
+  const relThresh = toLufs(abs.reduce((a, b) => a + b, 0) / abs.length) - 10;
+  const gated = abs.filter(e => toLufs(e) > relThresh);
+  const use = gated.length ? gated : abs;
+  return toLufs(use.reduce((a, b) => a + b, 0) / use.length);
+}
+
+// ── True lookahead brickwall limiter (offline, pure JS) ──
+// Gain law gain = ceiling/|x| with instant attack, adapted from EffeTune's
+// Brickwall Limiter (MIT) — upgraded with real lookahead: moving-minimum
+// over a 4 ms window + matching smoothing ramp, possible because we process
+// offline. The ceiling is mathematically guaranteed; no overshoot, no clip.
+function brickwallLimit(x, gainLin, ceiling, sr) {
+  const n = x.length;
+  if (!n) return x;
+  const la = Math.min(Math.max(1, Math.round(sr * 0.004)), n - 1 || 1);
+  const relUp = Math.pow(10, 80 / sr / 20);          // ~80 dB/s release
+  const g = new Float32Array(n + la).fill(1);
+  for (let i = 0; i < n; i++) {
+    const a = (x[i] < 0 ? -x[i] : x[i]) * gainLin;
+    if (a > ceiling) g[i] = ceiling / a;
+  }
+  // Moving minimum over [i, i+la] — monotonic deque, O(n)
+  const gmin = new Float32Array(n);
+  const dq = new Int32Array(n + la + 1);
+  let head = 0, tail = 0, j = 0;
+  for (let i = 0; i < n; i++) {
+    const end = i + la;
+    for (; j <= end; j++) {
+      while (tail > head && g[dq[tail - 1]] >= g[j]) tail--;
+      dq[tail++] = j;
+    }
+    while (dq[head] < i) head++;
+    gmin[i] = g[dq[head]];
+  }
+  // Smoothing: moving average over [i-la, i] turns gain steps into ramps.
+  // Every gmin in that window already accounts for sample i, so the
+  // averaged envelope still never exceeds the required gain at i.
+  const w = la + 1;
+  let sum = 0, prev = 1;
+  for (let i = 0; i < n; i++) {
+    sum += gmin[i];
+    if (i >= w) sum -= gmin[i - w];
+    let e = sum / (i < w ? i + 1 : w);
+    const allowed = prev * relUp;                    // release-rate clamp
+    if (e > allowed) e = allowed;
+    prev = e;
+    x[i] = x[i] * gainLin * e;
+  }
+  return x;
+}
+
+// Auto loudness: measure the shaped signal's perceived loudness and lift it
+// to the target, capping how deep the limiter may work so it stays clean.
+const TARGET_LUFS = -10;
+const MAX_LIMIT_DB = 9;
+const LIMIT_CEILING = 0.98;
+
+function computeLoudGainDb(shaped) {
+  const lufs = measureLufs(shaped, SL_SAMPLE_RATE);
+  let peak = 0;
+  for (let i = 0; i < shaped.length; i++) {
+    const a = shaped[i] < 0 ? -shaped[i] : shaped[i];
     if (a > peak) peak = a;
-    sum += v * v;
   }
   if (!peak) return 0;
   const peakDb = 20 * Math.log10(peak);
-  const rmsDb  = 20 * Math.log10(Math.sqrt(sum / pcm.length) || 1e-9);
-  const headroom = -1.5 - peakDb;                    // gain that puts peaks at the limiter threshold
-  let gain = Math.max(headroom + 6, -11 - rmsDb);
-  gain = Math.min(gain, headroom + 9);
-  gain -= FX.bass * 0.25;                            // boosted bass eats headroom
+  const ceilingDb = 20 * Math.log10(LIMIT_CEILING);
+  let gain = TARGET_LUFS - lufs;
+  gain = Math.min(gain, (ceilingDb - peakDb) + MAX_LIMIT_DB);
   return Math.min(20, Math.max(0, gain));
 }
 
-function createFxChain(ctx, loudDb) {
+function createFxChain(ctx) {
   const input = ctx.createGain();
 
   // Subsonic rumble wastes loudness headroom — cut below hearing range
@@ -1067,6 +1167,17 @@ function createFxChain(ctx, loudDb) {
   bassComp.release.value = 0.2;
   lp2.connect(bassGain); bassGain.connect(bassComp); bassComp.connect(sum);
 
+  // Parallel bass saturation: harmonics make the boost audible even on
+  // small speakers that can't reproduce the fundamentals
+  if (FX.bass > 0) {
+    const bassSat = ctx.createWaveShaper();
+    bassSat.curve = BASS_SAT_CURVE;
+    bassSat.oversample = '2x';
+    const bassSatMix = ctx.createGain();
+    bassSatMix.gain.value = Math.min(0.35, FX.bass * 0.045);
+    bassComp.connect(bassSat); bassSat.connect(bassSatMix); bassSatMix.connect(sum);
+  }
+
   // High band: clarity = cut mud + lift presence + lift air
   const mudCut = ctx.createBiquadFilter();
   mudCut.type = 'peaking'; mudCut.frequency.value = 350; mudCut.Q.value = 1.0;
@@ -1076,8 +1187,21 @@ function createFxChain(ctx, loudDb) {
   presence.gain.value = FX.clarity * 0.35;
   const air = ctx.createBiquadFilter();
   air.type = 'highshelf'; air.frequency.value = 7000;
-  air.gain.value = FX.clarity;
+  air.gain.value = FX.clarity * 0.7;                 // exciter supplies the rest
   hp2.connect(mudCut); mudCut.connect(presence); presence.connect(air); air.connect(sum);
+
+  // Parallel harmonic exciter (EffeTune-style): saturate the top end and
+  // blend it back in — perceived detail and clarity beyond what EQ can do
+  if (FX.clarity > 0) {
+    const exHP = ctx.createBiquadFilter();
+    exHP.type = 'highpass'; exHP.frequency.value = 3000; exHP.Q.value = 0.71;
+    const exciter = ctx.createWaveShaper();
+    exciter.curve = EXCITER_CURVE;
+    exciter.oversample = '2x';
+    const exMix = ctx.createGain();
+    exMix.gain.value = Math.min(0.3, FX.clarity * 0.05);
+    hp2.connect(exHP); exHP.connect(exciter); exciter.connect(exMix); exMix.connect(sum);
+  }
 
   // Glue (punch): ratio 1 at punch 0 keeps it transparent
   const glue = ctx.createDynamicsCompressor();
@@ -1088,42 +1212,32 @@ function createFxChain(ctx, loudDb) {
   glue.release.value = 0.22;
   sum.connect(glue);
 
-  const loudGain = ctx.createGain();
-  loudGain.gain.value = dbToGain(loudDb);
-  glue.connect(loudGain);
-
-  const limiter = ctx.createDynamicsCompressor();
-  limiter.threshold.value = -1.5;
-  limiter.knee.value = 0;
-  limiter.ratio.value = 20;
-  limiter.attack.value = 0.001;
-  limiter.release.value = 0.1;
-  loudGain.connect(limiter);
-
-  const clip = ctx.createWaveShaper();
-  clip.curve = SOFT_CLIP_CURVE;
-  clip.oversample = '4x';
-  limiter.connect(clip);
-
-  return { input, output: clip };
+  // Loudness gain and limiting happen after this render, in JS:
+  // LUFS measurement → gain → lookahead brickwall (renderFxToPcm)
+  return { input, output: glue };
 }
 
-// Run the FX chain over mono 44.1k PCM in an offline context.
+// Run the FX chain over mono 44.1k PCM. Two stages:
+//  1. OfflineAudioContext render of the tone-shaping graph above
+//  2. Pure-JS mastering: measure LUFS on the shaped signal, compute the
+//     loudness gain, then lookahead-brickwall-limit to the ceiling
 // Single processing path shared by preview and slicing, so what you hear
 // in the A/B is exactly what lands in the clips.
 async function renderFxToPcm(pcm) {
-  const loudDb = FX.autoLoud ? computeAutoGainDb(pcm) : FX.loudness;
   const off = new OfflineAudioContext(1, pcm.length, SL_SAMPLE_RATE);
   const buf = off.createBuffer(1, pcm.length, SL_SAMPLE_RATE);
   buf.copyToChannel(pcm, 0);
   const src = off.createBufferSource();
   src.buffer = buf;
-  const chain = createFxChain(off, loudDb);
+  const chain = createFxChain(off);
   src.connect(chain.input);
   chain.output.connect(off.destination);
   src.start(0);
   const rendered = await off.startRendering();
-  return { samples: normalizePeak(rendered.getChannelData(0)), loudDb };
+  const shaped = rendered.getChannelData(0);
+  const loudDb = FX.autoLoud ? computeLoudGainDb(shaped) : FX.loudness;
+  brickwallLimit(shaped, dbToGain(loudDb), LIMIT_CEILING, SL_SAMPLE_RATE);
+  return { samples: normalizePeak(shaped), loudDb };
 }
 
 // The WebAudio compressor is not a true brickwall — renders can overshoot
