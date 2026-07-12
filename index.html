@@ -511,6 +511,8 @@ select.preview-select:focus { border-color: var(--accent); }
   transition: background 0.15s, color 0.15s;
 }
 .ab-btn.active { background: var(--accent); color: var(--bg); }
+.ab-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.ab-toggle.fx-disabled { opacity: 0.5; }
 
 /* ══════════════════════════════════════════════
    RESPONSIVE
@@ -627,6 +629,7 @@ select.preview-select:focus { border-color: var(--accent); }
     </div>
 
     <div class="status-text" id="previewStatus" style="margin-top:8px"></div>
+    <div class="status-text" id="previewHint" style="margin-top:4px"></div>
   </div>
 
   <!-- SETTINGS -->
@@ -1067,6 +1070,7 @@ function syncFxUI() {
     p.classList.toggle('active', FX.enabled && pr &&
       ['loudness', 'bass', 'clarity', 'punch'].every(k => Math.abs(pr[k] - FX[k]) < 0.01));
   });
+  syncAB();
   drawWave();
 }
 
@@ -1105,11 +1109,27 @@ const timeDisplay   = $('timeDisplay');
 const abOriginal    = $('abOriginal');
 const abEnhanced    = $('abEnhanced');
 const previewStatus = $('previewStatus');
+const previewHint   = $('previewHint');
+
+// Keep the A/B toggle honest: grey it out when comparing is meaningless
+// (FX off → both buffers identical) and label the render-in-progress state
+// (until the offline render finishes, "Enhanced" would play the original).
+function syncAB() {
+  const fxOff = !FX.enabled;
+  abOriginal.disabled = fxOff || !PV.orig;
+  abEnhanced.disabled = fxOff || !PV.orig || !PV.procReady;
+  abEnhanced.textContent = (!fxOff && PV.orig && !PV.procReady) ? 'Enhancing…' : 'Enhanced';
+  document.querySelector('.ab-toggle').classList.toggle('fx-disabled', fxOff);
+  previewHint.textContent = (PV.orig && fxOff)
+    ? '⚠ ENHANCE is off — original and enhanced sound identical. Flip the switch above to compare.'
+    : '';
+}
 
 const PV = {
   file: null,        // File object currently previewed
   orig: null,        // AudioBuffer (mono 44.1k, no effects)
   proc: null,        // AudioBuffer with effects (== orig when FX off)
+  procReady: false,  // true once proc is a finished FX render (not a stand-in)
   peaksO: null,      // cached waveform peaks { min, max, w }
   peaksP: null,
   mode: 'enhanced',  // which buffer plays: 'original' | 'enhanced'
@@ -1161,9 +1181,11 @@ function resetPreview() {
   cancelAnimationFrame(PV.raf);
   PV.playing = false;
   PV.file = PV.orig = PV.proc = PV.peaksO = PV.peaksP = null;
+  PV.procReady = false;
   PV.offset = 0;
   previewStatus.textContent = '';
   syncTransport();
+  syncAB();
 }
 
 async function loadPreview(idx) {
@@ -1174,9 +1196,11 @@ async function loadPreview(idx) {
   cancelAnimationFrame(PV.raf);
   PV.playing = false;
   PV.orig = PV.proc = PV.peaksO = PV.peaksP = null;
+  PV.procReady = false;
   PV.offset = 0;
   PV.file = entry.file;
   syncTransport();
+  syncAB();
   drawWave();
   previewStatus.textContent = 'Decoding ' + entry.file.name + '…';
   previewStatus.className = 'status-text';
@@ -1187,8 +1211,10 @@ async function loadPreview(idx) {
     buf.copyToChannel(pcm, 0);
     PV.orig = buf;
     PV.proc = buf;
+    PV.procReady = false;
     previewStatus.textContent = '';
     syncTransport();
+    syncAB();
     drawWave();
     runProcessedRender();
   } catch (err) {
@@ -1202,6 +1228,7 @@ async function loadPreview(idx) {
 let fxRenderTimer = 0, fxRenderSeq = 0;
 
 function scheduleProcessedRender() {
+  if (PV.orig && FX.enabled) { PV.procReady = false; syncAB(); }
   clearTimeout(fxRenderTimer);
   fxRenderTimer = setTimeout(runProcessedRender, 250);
 }
@@ -1211,11 +1238,15 @@ async function runProcessedRender() {
   const seq = ++fxRenderSeq;
   if (!FX.enabled) {
     PV.proc = PV.orig;
+    PV.procReady = false;
     PV.peaksP = null;
+    syncAB();
     if (PV.playing && PV.mode === 'enhanced') startNode(getPos());
     drawWave();
     return;
   }
+  PV.procReady = false;
+  syncAB();
   previewStatus.textContent = 'Rendering enhanced preview…';
   previewStatus.className = 'status-text';
   try {
@@ -1230,8 +1261,10 @@ async function runProcessedRender() {
     if (seq !== fxRenderSeq || !PV.orig) return;
     normalizePeak(rendered.getChannelData(0));
     PV.proc = rendered;
+    PV.procReady = true;
     PV.peaksP = null;
     previewStatus.textContent = '';
+    syncAB();
     if (PV.playing && PV.mode === 'enhanced') startNode(getPos());
     drawWave();
   } catch (err) {
@@ -1428,6 +1461,7 @@ function updateTime() {
 }
 
 window.addEventListener('resize', () => drawWave());
+syncAB();
 
 // ── Helpers ──
 function formatDur(s) {
