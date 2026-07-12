@@ -456,6 +456,18 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
 }
 .fx-disabled { opacity: 0.45; pointer-events: none; }
+input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
+.auto-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.78rem;
+  color: var(--subtext);
+  margin-top: 8px;
+  margin-bottom: 0;
+  cursor: pointer;
+}
+.auto-row input[type="checkbox"] { accent-color: var(--accent); cursor: pointer; }
 
 /* ══════════════════════════════════════════════
    PREVIEW (WAVEFORM + TRANSPORT)
@@ -588,8 +600,9 @@ select.preview-select:focus { border-color: var(--accent); }
 
       <div class="fx-grid">
         <div class="fx-slider">
-          <label for="fxLoud">Loudness <span class="fx-val" id="fxLoudVal">+6.0 dB</span></label>
-          <input type="range" id="fxLoud" min="0" max="12" step="0.5" value="6">
+          <label for="fxLoud">Loudness <span class="fx-val" id="fxLoudVal">AUTO</span></label>
+          <input type="range" id="fxLoud" min="0" max="12" step="0.5" value="6" disabled>
+          <label class="auto-row"><input type="checkbox" id="fxAuto" checked> Auto — max clean loudness per song</label>
         </div>
         <div class="fx-slider">
           <label for="fxBass">Bass Boost <span class="fx-val" id="fxBassVal">+4.0 dB</span></label>
@@ -606,7 +619,7 @@ select.preview-select:focus { border-color: var(--accent); }
       </div>
     </div>
 
-    <div class="format-note">A limiter keeps peaks under control — louder and fuller without clipping or distortion.</div>
+    <div class="format-note">Auto loudness measures each song and pushes it as loud as it can go cleanly. A dedicated bass compressor, soft-clipper and limiter prevent pumping, clipping and distortion.</div>
   </div>
 
   <!-- PREVIEW -->
@@ -967,57 +980,117 @@ function updatePresetHighlight() {
 // ============================================================================
 // ENHANCE — AUDIO EFFECTS (Web Audio API)
 // ============================================================================
-// Chain: bass shelf → sub peak → clarity shelf → presence peak
-//        → punch compressor → loudness gain → limiter
-// The limiter (high-ratio compressor) always terminates the chain so the
-// loudness gain can push hard without clipping the 16-bit output.
+// Mastering-style chain, split at 130 Hz so boosted bass gets its own
+// compressor and can't pump the rest of the mix:
+//
+//   input → subsonic HP → ┬ low band  → bass gain → bass compressor ┐
+//                         └ high band → mud cut → presence → air    ┴ sum
+//   sum → glue compressor (punch) → loudness gain → limiter → soft clip
+//
+// Loudness is auto-computed per song by default: measure peak/RMS headroom
+// and push as hard as possible while capping limiter drive at ~9 dB.
 
-const FX = { enabled: false, loudness: 6, bass: 4, clarity: 2, punch: 3 };
+const FX = { enabled: false, autoLoud: true, loudness: 6, bass: 4, clarity: 2, punch: 3 };
 
 const FX_PRESETS = {
-  louder: { loudness: 8, bass: 1, clarity: 1.5, punch: 3 },
-  bass:   { loudness: 4, bass: 8, clarity: 1,   punch: 2 },
-  crisp:  { loudness: 4, bass: 2, clarity: 6,   punch: 2 },
-  full:   { loudness: 7, bass: 6, clarity: 4,   punch: 4 }
+  louder: { autoLoud: true, bass: 1, clarity: 2,   punch: 3 },
+  bass:   { autoLoud: true, bass: 8, clarity: 2,   punch: 3 },
+  crisp:  { autoLoud: true, bass: 2, clarity: 6,   punch: 2 },
+  full:   { autoLoud: true, bass: 6, clarity: 4.5, punch: 4 }
 };
 
 const dbToGain = db => Math.pow(10, db / 20);
 
-function createFxChain(ctx) {
-  const bassShelf = ctx.createBiquadFilter();
-  bassShelf.type = 'lowshelf';
-  bassShelf.frequency.value = 120;
-  bassShelf.gain.value = FX.bass;
+// Soft-clip transfer curve: exactly linear below 0.85, smooth tanh knee
+// above — shaves limiter overshoots transparently instead of hard-clipping.
+const SOFT_CLIP_CURVE = (() => {
+  const n = 8192, a = 0.85, curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * 2 - 1;
+    const ax = Math.abs(x);
+    curve[i] = ax <= a ? x : Math.sign(x) * (a + (1 - a) * Math.tanh((ax - a) / (1 - a)));
+  }
+  return curve;
+})();
 
-  // Sub-bass bump for depth, scaled with the bass slider
-  const subPeak = ctx.createBiquadFilter();
-  subPeak.type = 'peaking';
-  subPeak.frequency.value = 55;
-  subPeak.Q.value = 1.0;
-  subPeak.gain.value = FX.bass * 0.45;
+// Max clean gain for this song: bring peaks ~6 dB into the limiter, lift
+// quiet tracks toward -11 dB RMS, but never demand more than ~9 dB of
+// limiting — past that, pumping becomes audible.
+function computeAutoGainDb(pcm) {
+  let peak = 0, sum = 0;
+  for (let i = 0; i < pcm.length; i++) {
+    const v = pcm[i];
+    const a = v < 0 ? -v : v;
+    if (a > peak) peak = a;
+    sum += v * v;
+  }
+  if (!peak) return 0;
+  const peakDb = 20 * Math.log10(peak);
+  const rmsDb  = 20 * Math.log10(Math.sqrt(sum / pcm.length) || 1e-9);
+  const headroom = -1.5 - peakDb;                    // gain that puts peaks at the limiter threshold
+  let gain = Math.max(headroom + 6, -11 - rmsDb);
+  gain = Math.min(gain, headroom + 9);
+  gain -= FX.bass * 0.25;                            // boosted bass eats headroom
+  return Math.min(20, Math.max(0, gain));
+}
 
-  const clarityShelf = ctx.createBiquadFilter();
-  clarityShelf.type = 'highshelf';
-  clarityShelf.frequency.value = 7000;
-  clarityShelf.gain.value = FX.clarity;
+function createFxChain(ctx, loudDb) {
+  const input = ctx.createGain();
 
-  // Gentle presence lift so clarity affects vocals, not just hiss range
+  // Subsonic rumble wastes loudness headroom — cut below hearing range
+  const hpSub = ctx.createBiquadFilter();
+  hpSub.type = 'highpass'; hpSub.frequency.value = 25; hpSub.Q.value = 0.71;
+  input.connect(hpSub);
+
+  // ── Linkwitz-Riley 4th-order split at 130 Hz (LP+HP sum is flat) ──
+  const mkBiquad = (type) => {
+    const f = ctx.createBiquadFilter();
+    f.type = type; f.frequency.value = 130; f.Q.value = 0.7071;
+    return f;
+  };
+  const lp1 = mkBiquad('lowpass'),  lp2 = mkBiquad('lowpass');
+  const hp1 = mkBiquad('highpass'), hp2 = mkBiquad('highpass');
+  hpSub.connect(lp1); lp1.connect(lp2);
+  hpSub.connect(hp1); hp1.connect(hp2);
+
+  const sum = ctx.createGain();
+
+  // Low band: boost, then a dedicated compressor keeps the boosted bass
+  // dense and even instead of letting kicks slam the master limiter
+  const bassGain = ctx.createGain();
+  bassGain.gain.value = dbToGain(FX.bass);
+  const bassComp = ctx.createDynamicsCompressor();
+  bassComp.threshold.value = -10 - FX.bass * 0.8;
+  bassComp.knee.value = 8;
+  bassComp.ratio.value = 1 + FX.bass * 0.3;          // transparent at bass 0
+  bassComp.attack.value = 0.015;
+  bassComp.release.value = 0.2;
+  lp2.connect(bassGain); bassGain.connect(bassComp); bassComp.connect(sum);
+
+  // High band: clarity = cut mud + lift presence + lift air
+  const mudCut = ctx.createBiquadFilter();
+  mudCut.type = 'peaking'; mudCut.frequency.value = 350; mudCut.Q.value = 1.0;
+  mudCut.gain.value = -FX.clarity * 0.3;
   const presence = ctx.createBiquadFilter();
-  presence.type = 'peaking';
-  presence.frequency.value = 2800;
-  presence.Q.value = 0.9;
+  presence.type = 'peaking'; presence.frequency.value = 2800; presence.Q.value = 0.9;
   presence.gain.value = FX.clarity * 0.35;
+  const air = ctx.createBiquadFilter();
+  air.type = 'highshelf'; air.frequency.value = 7000;
+  air.gain.value = FX.clarity;
+  hp2.connect(mudCut); mudCut.connect(presence); presence.connect(air); air.connect(sum);
 
-  // Punch: ratio 1 at punch 0 keeps it transparent
-  const punchComp = ctx.createDynamicsCompressor();
-  punchComp.threshold.value = -8 - FX.punch * 1.4;
-  punchComp.knee.value = 12;
-  punchComp.ratio.value = 1 + FX.punch * 0.45;
-  punchComp.attack.value = 0.012;
-  punchComp.release.value = 0.22;
+  // Glue (punch): ratio 1 at punch 0 keeps it transparent
+  const glue = ctx.createDynamicsCompressor();
+  glue.threshold.value = -16 - FX.punch * 1.2;
+  glue.knee.value = 18;
+  glue.ratio.value = 1 + FX.punch * 0.4;
+  glue.attack.value = 0.018;
+  glue.release.value = 0.22;
+  sum.connect(glue);
 
   const loudGain = ctx.createGain();
-  loudGain.gain.value = dbToGain(FX.loudness);
+  loudGain.gain.value = dbToGain(loudDb);
+  glue.connect(loudGain);
 
   const limiter = ctx.createDynamicsCompressor();
   limiter.threshold.value = -1.5;
@@ -1025,15 +1098,32 @@ function createFxChain(ctx) {
   limiter.ratio.value = 20;
   limiter.attack.value = 0.001;
   limiter.release.value = 0.1;
-
-  bassShelf.connect(subPeak);
-  subPeak.connect(clarityShelf);
-  clarityShelf.connect(presence);
-  presence.connect(punchComp);
-  punchComp.connect(loudGain);
   loudGain.connect(limiter);
 
-  return { input: bassShelf, output: limiter };
+  const clip = ctx.createWaveShaper();
+  clip.curve = SOFT_CLIP_CURVE;
+  clip.oversample = '4x';
+  limiter.connect(clip);
+
+  return { input, output: clip };
+}
+
+// Run the FX chain over mono 44.1k PCM in an offline context.
+// Single processing path shared by preview and slicing, so what you hear
+// in the A/B is exactly what lands in the clips.
+async function renderFxToPcm(pcm) {
+  const loudDb = FX.autoLoud ? computeAutoGainDb(pcm) : FX.loudness;
+  const off = new OfflineAudioContext(1, pcm.length, SL_SAMPLE_RATE);
+  const buf = off.createBuffer(1, pcm.length, SL_SAMPLE_RATE);
+  buf.copyToChannel(pcm, 0);
+  const src = off.createBufferSource();
+  src.buffer = buf;
+  const chain = createFxChain(off, loudDb);
+  src.connect(chain.input);
+  chain.output.connect(off.destination);
+  src.start(0);
+  const rendered = await off.startRendering();
+  return { samples: normalizePeak(rendered.getChannelData(0)), loudDb };
 }
 
 // The WebAudio compressor is not a true brickwall — renders can overshoot
@@ -1054,12 +1144,17 @@ function normalizePeak(f32, target = 0.98) {
 // ── Enhance UI ──
 const fxToggle    = $('fxToggle');
 const fxControls  = $('fxControls');
+const fxAutoEl    = $('fxAuto');
 const fxSliderEls = { loudness: $('fxLoud'), bass: $('fxBass'), clarity: $('fxClarity'), punch: $('fxPunch') };
 const fxValEls    = { loudness: $('fxLoudVal'), bass: $('fxBassVal'), clarity: $('fxClarityVal'), punch: $('fxPunchVal') };
 
 function syncFxUI() {
   for (const k of ['loudness', 'bass', 'clarity', 'punch']) fxSliderEls[k].value = FX[k];
-  fxValEls.loudness.textContent = '+' + FX.loudness.toFixed(1) + ' dB';
+  fxAutoEl.checked = FX.autoLoud;
+  fxSliderEls.loudness.disabled = FX.autoLoud;
+  fxValEls.loudness.textContent = FX.autoLoud
+    ? (PV.autoDb != null ? 'AUTO +' + PV.autoDb.toFixed(1) + ' dB' : 'AUTO')
+    : '+' + FX.loudness.toFixed(1) + ' dB';
   fxValEls.bass.textContent     = '+' + FX.bass.toFixed(1) + ' dB';
   fxValEls.clarity.textContent  = '+' + FX.clarity.toFixed(1) + ' dB';
   fxValEls.punch.textContent    = FX.punch.toFixed(0) + ' / 10';
@@ -1068,7 +1163,8 @@ function syncFxUI() {
   document.querySelectorAll('#fxPresets .preset-pill').forEach(p => {
     const pr = FX_PRESETS[p.dataset.preset];
     p.classList.toggle('active', FX.enabled && pr &&
-      ['loudness', 'bass', 'clarity', 'punch'].every(k => Math.abs(pr[k] - FX[k]) < 0.01));
+      pr.autoLoud === FX.autoLoud &&
+      ['bass', 'clarity', 'punch'].every(k => Math.abs(pr[k] - FX[k]) < 0.01));
   });
   syncAB();
   drawWave();
@@ -1076,6 +1172,12 @@ function syncFxUI() {
 
 fxToggle.addEventListener('change', () => {
   FX.enabled = fxToggle.checked;
+  syncFxUI();
+  scheduleProcessedRender();
+});
+
+fxAutoEl.addEventListener('change', () => {
+  FX.autoLoud = fxAutoEl.checked;
   syncFxUI();
   scheduleProcessedRender();
 });
@@ -1130,6 +1232,7 @@ const PV = {
   orig: null,        // AudioBuffer (mono 44.1k, no effects)
   proc: null,        // AudioBuffer with effects (== orig when FX off)
   procReady: false,  // true once proc is a finished FX render (not a stand-in)
+  autoDb: null,      // auto-loudness gain computed for the previewed song
   peaksO: null,      // cached waveform peaks { min, max, w }
   peaksP: null,
   mode: 'enhanced',  // which buffer plays: 'original' | 'enhanced'
@@ -1182,6 +1285,7 @@ function resetPreview() {
   PV.playing = false;
   PV.file = PV.orig = PV.proc = PV.peaksO = PV.peaksP = null;
   PV.procReady = false;
+  PV.autoDb = null;
   PV.offset = 0;
   previewStatus.textContent = '';
   syncTransport();
@@ -1197,6 +1301,7 @@ async function loadPreview(idx) {
   PV.playing = false;
   PV.orig = PV.proc = PV.peaksO = PV.peaksP = null;
   PV.procReady = false;
+  PV.autoDb = null;
   PV.offset = 0;
   PV.file = entry.file;
   syncTransport();
@@ -1239,6 +1344,7 @@ async function runProcessedRender() {
   if (!FX.enabled) {
     PV.proc = PV.orig;
     PV.procReady = false;
+    PV.autoDb = null;
     PV.peaksP = null;
     syncAB();
     if (PV.playing && PV.mode === 'enhanced') startNode(getPos());
@@ -1250,23 +1356,17 @@ async function runProcessedRender() {
   previewStatus.textContent = 'Rendering enhanced preview…';
   previewStatus.className = 'status-text';
   try {
-    const off = new OfflineAudioContext(1, PV.orig.length, SL_SAMPLE_RATE);
-    const src = off.createBufferSource();
-    src.buffer = PV.orig;
-    const chain = createFxChain(off);
-    src.connect(chain.input);
-    chain.output.connect(off.destination);
-    src.start(0);
-    const rendered = await off.startRendering();
+    const { samples, loudDb } = await renderFxToPcm(PV.orig.getChannelData(0));
     if (seq !== fxRenderSeq || !PV.orig) return;
-    normalizePeak(rendered.getChannelData(0));
-    PV.proc = rendered;
+    const buf = getAudioCtx().createBuffer(1, samples.length, SL_SAMPLE_RATE);
+    buf.copyToChannel(samples, 0);
+    PV.proc = buf;
     PV.procReady = true;
+    PV.autoDb = FX.autoLoud ? loudDb : null;
     PV.peaksP = null;
     previewStatus.textContent = '';
-    syncAB();
+    syncFxUI();  // refresh AUTO gain readout; also runs syncAB + drawWave
     if (PV.playing && PV.mode === 'enhanced') startNode(getPos());
-    drawWave();
   } catch (err) {
     previewStatus.textContent = 'Preview render failed: ' + err.message;
     previewStatus.className = 'status-text error';
@@ -1545,18 +1645,15 @@ async function decodeToMono44k(file, applyFx = FX.enabled) {
   const offline = new OfflineAudioContext(SL_CHANNELS, totalFrames, SL_SAMPLE_RATE);
   const src     = offline.createBufferSource();
   src.buffer    = decoded;
-  if (applyFx) {
-    const chain = createFxChain(offline);
-    src.connect(chain.input);
-    chain.output.connect(offline.destination);
-  } else {
-    src.connect(offline.destination);
-  }
+  src.connect(offline.destination);
   src.start(0);
 
   const rendered = await offline.startRendering();
   const pcm = rendered.getChannelData(0);  // mono Float32Array
-  return applyFx ? normalizePeak(pcm) : pcm;
+  // Effects run as a second offline pass over the mono PCM so the auto-
+  // loudness analysis sees the exact signal the chain processes — the same
+  // path the preview uses, so the A/B is what actually lands in the clips.
+  return applyFx ? (await renderFxToPcm(pcm)).samples : pcm;
 }
 
 // ── Slicing ──
