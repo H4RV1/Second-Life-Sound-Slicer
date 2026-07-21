@@ -536,10 +536,555 @@ select.preview-select:focus { border-color: var(--accent); }
   .container { padding: 20px 14px 40px; }
   .ab-toggle { margin-left: 0; }
 }
+
+/* ══════════════════════════════════════════════
+   MOOSIC NETWORK // CYBER TERMINAL SKIN
+   ══════════════════════════════════════════════ */
+:root {
+  color-scheme: dark;
+  --bg: #04070b;
+  --card: #070c12;
+  --surface: #0a1119;
+  --input: #061018;
+  --border: #183340;
+  --text: #e8f8ff;
+  --subtext: #9bb2bd;
+  --dim: #5e7885;
+  --accent: #2cf6ff;
+  --accent2: #7cfaff;
+  --green: #63f5bc;
+  --red: #ff5fc7;
+  --yellow: #ffb35c;
+  --font: 'Cascadia Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  --mono: 'Cascadia Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+}
+
+html { scroll-behavior: smooth; }
+body {
+  min-width: 320px;
+  padding: clamp(.55rem, 2.3vw, 1.8rem);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+}
+
+button, input, select { font: inherit; }
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.skip-link {
+  position: fixed;
+  z-index: 1200;
+  top: -5rem;
+  left: 1rem;
+  padding: .65rem .9rem;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #05090d;
+  text-decoration: none;
+}
+.skip-link:focus { top: 1rem; }
+
+.grid-plane {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgb(44 246 255 / 3.8%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(44 246 255 / 3.8%) 1px, transparent 1px);
+  background-size: 46px 46px;
+  mask-image: linear-gradient(to bottom, #000 22%, transparent 100%);
+}
+
+.terminal-shell {
+  position: relative;
+  width: min(100%, 1180px);
+  margin: 0 auto;
+  overflow: hidden;
+  border: 1px solid #214956;
+  border-radius: 12px;
+  background: rgb(4 8 13 / 97%);
+  box-shadow: 0 22px 70px rgb(0 0 0 / 55%), inset 0 1px rgb(255 255 255 / 3%);
+}
+.terminal-shell::before,
+.terminal-shell::after {
+  content: '';
+  position: absolute;
+  z-index: 5;
+  width: 34px;
+  height: 34px;
+  pointer-events: none;
+}
+.terminal-shell::before {
+  top: 8px;
+  left: 8px;
+  border-top: 1px solid var(--accent);
+  border-left: 1px solid var(--accent);
+}
+.terminal-shell::after {
+  right: 8px;
+  bottom: 8px;
+  border-right: 1px solid #6b9dff;
+  border-bottom: 1px solid #6b9dff;
+}
+
+.console-status {
+  min-height: 29px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0 1rem;
+  border-bottom: 1px solid var(--border);
+  background: #060a0f;
+  color: #4a6572;
+  font-size: .52rem;
+  font-weight: 700;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+}
+.live-status { color: #a8c1cc; }
+.live-status i {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: .42rem;
+  border-radius: 50%;
+  background: #6b9dff;
+  box-shadow: 0 0 10px #6b9dff;
+}
+
+.slicer-nav {
+  min-height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: .7rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: #070d12;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: .65rem;
+  color: var(--text);
+  text-decoration: none;
+  letter-spacing: .08em;
+}
+.brand strong { display: block; font-size: .82rem; line-height: 1; }
+.brand small { display: block; margin-top: .28rem; color: #4a6572; font-size: .48rem; letter-spacing: .25em; }
+.brand-mark {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 1px solid #246471;
+  border-radius: 5px;
+  background: rgb(44 246 255 / 5%);
+}
+.brand-mark i { width: 3px; background: var(--accent); box-shadow: 0 0 7px rgb(44 246 255 / 48%); }
+.brand-mark i:nth-child(1) { height: 8px; }
+.brand-mark i:nth-child(2) { height: 18px; }
+.brand-mark i:nth-child(3) { height: 12px; }
+.brand-mark i:nth-child(4) { height: 22px; }
+
+.slicer-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+}
+.slicer-nav-actions a {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  padding: 0 .68rem;
+  border: 1px solid #274854;
+  border-radius: 4px;
+  background: #080f15;
+  color: #9bb2bd;
+  font-size: .62rem;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.slicer-nav-actions a span { color: #6b9dff; }
+.slicer-nav-actions a:hover,
+.slicer-nav-actions a.is-current {
+  border-color: var(--accent);
+  background: rgb(44 246 255 / 8%);
+  color: var(--accent);
+}
+
+.container {
+  max-width: none;
+  margin: 0;
+  padding: .8rem;
+}
+
+.header {
+  position: relative;
+  min-height: 190px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  margin: 0 0 .7rem;
+  padding: clamp(1.15rem, 3vw, 2rem);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background:
+    linear-gradient(115deg, rgb(44 246 255 / 9%), transparent 45%),
+    radial-gradient(circle at 88% 15%, rgb(107 157 255 / 16%), transparent 34%),
+    #070c12;
+}
+.header::after {
+  content: 'MODULE // SL-AUDIO-01';
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  color: #35505d;
+  font-size: .5rem;
+  letter-spacing: .16em;
+}
+.terminal-path {
+  margin: 0 0 .65rem !important;
+  color: #6b9dff !important;
+  font-size: .56rem !important;
+  font-weight: 800;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+}
+.header h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: clamp(2.25rem, 7vw, 4.8rem);
+  font-weight: 800;
+  line-height: .95;
+  letter-spacing: -.065em;
+}
+.cursor { color: var(--accent); animation: cursorBlink 1s steps(2, end) infinite; }
+@keyframes cursorBlink { 50% { opacity: .2; } }
+.header > div > p:not(.terminal-path) {
+  max-width: 760px;
+  margin-top: 1rem;
+  color: #9bb2bd;
+  font-size: .82rem;
+  line-height: 1.7;
+}
+.badge-row { margin-top: 1.1rem; gap: .45rem; }
+.badge {
+  padding: .42rem .62rem;
+  border: 1px solid #234653;
+  border-radius: 3px;
+  background: #071018;
+  color: #83a0ad;
+  font-size: .58rem;
+  letter-spacing: .04em;
+}
+.badge b { margin-right: .35rem; color: #6b9dff; }
+.badge.accent {
+  border-color: #287080;
+  background: rgb(44 246 255 / 7%);
+  color: var(--accent);
+}
+
+.workflow-line {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 1px;
+  margin-bottom: .8rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--border);
+}
+.workflow-line span {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .65rem;
+  background: #070e14;
+  color: #91aab5;
+  font-size: .6rem;
+  line-height: 1.35;
+}
+.workflow-line b { color: #6b9dff; font-size: .5rem; }
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(320px, .75fr);
+  align-items: start;
+  gap: .8rem;
+}
+.workspace-main,
+.workspace-side { min-width: 0; }
+
+.card {
+  position: relative;
+  margin-bottom: .8rem;
+  padding: clamp(.9rem, 2vw, 1.15rem);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #070c12;
+  box-shadow: inset 0 1px rgb(255 255 255 / 2%);
+}
+.card::after {
+  content: '';
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  width: 12px;
+  height: 12px;
+  border-right: 1px solid #2a6271;
+  border-bottom: 1px solid #2a6271;
+  pointer-events: none;
+}
+.card-title {
+  margin-bottom: .85rem;
+  color: #c8e0e8;
+  font-size: .68rem;
+  letter-spacing: .09em;
+}
+.card-title > span:first-child { color: #6b9dff; font-size: .55rem; }
+.fx-sub { color: #5f7b87; font-size: .58rem; letter-spacing: 0; }
+
+.dropzone {
+  margin-bottom: .75rem;
+  padding: clamp(2rem, 7vw, 4rem) 1.2rem;
+  border: 1px dashed #2b6070;
+  border-radius: 4px;
+  background:
+    linear-gradient(rgb(44 246 255 / 2%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(44 246 255 / 2%) 1px, transparent 1px),
+    #050b10;
+  background-size: 22px 22px;
+}
+.dropzone:hover,
+.dropzone.dragover {
+  border-color: var(--accent);
+  background-color: rgb(44 246 255 / 5%);
+  box-shadow: inset 0 0 32px rgb(44 246 255 / 5%);
+}
+.dropzone-icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto .8rem;
+  border: 1px solid #2c7a88;
+  border-radius: 50%;
+  color: var(--accent);
+  font-size: 1.7rem;
+  box-shadow: 0 0 20px rgb(44 246 255 / 10%);
+}
+.dropzone-text { color: #aec3cc; font-size: .78rem; }
+.dropzone-hint { color: #58737f; font-size: .65rem; }
+.dropzone-text strong,
+.dropzone-hint strong { color: var(--accent) !important; }
+
+.file-list { max-height: 230px; border: 1px solid var(--border); }
+.file-item { padding: .55rem .65rem; color: #d5e8ee; font-size: .68rem; }
+.file-item:nth-child(odd) { background: #081018; }
+.file-item:nth-child(even) { background: #050b10; }
+.file-count,
+.file-item .dur { color: #718d99; font-size: .65rem; }
+
+label { color: #99b0ba; font-size: .7rem; }
+input[type='number'],
+input[type='text'],
+select.preview-select {
+  min-height: 40px;
+  border: 1px solid #285665;
+  border-radius: 3px;
+  background: #061018;
+  color: var(--accent);
+  font-size: .72rem;
+}
+input:focus,
+select.preview-select:focus { border-color: var(--accent); }
+
+.preset-pill {
+  min-height: 34px;
+  padding: .38rem .65rem;
+  border: 1px solid #274b58;
+  border-radius: 3px;
+  background: #071018;
+  color: #8ba5b0;
+  font-size: .65rem;
+}
+.preset-pill:hover { border-color: var(--accent); color: var(--accent); }
+.preset-pill.active {
+  border-color: var(--accent);
+  background: rgb(44 246 255 / 12%);
+  color: var(--accent);
+}
+.format-note,
+.est-note { color: #6b8793; font-size: .66rem; line-height: 1.6; }
+
+.switch .knob { border-radius: 3px; background: #061018; }
+.switch .knob::before { border-radius: 2px; background: #5b7480; }
+.switch input:checked + .knob { border-color: var(--accent); background: rgb(44 246 255 / 18%); }
+.switch input:checked + .knob::before { background: var(--accent); }
+.fx-val { color: var(--accent); font-size: .68rem; }
+input[type='range'] { height: 4px; border-radius: 0; background: #193440; }
+input[type='range']::-webkit-slider-thumb { border: 2px solid #041014; border-radius: 2px; background: var(--accent); box-shadow: 0 0 9px rgb(44 246 255 / 45%); }
+input[type='range']::-moz-range-thumb { border: 2px solid #041014; border-radius: 2px; background: var(--accent); box-shadow: 0 0 9px rgb(44 246 255 / 45%); }
+
+.wave-wrap { border-color: #285665; border-radius: 3px; background: #03080c; }
+#waveCanvas { height: 180px; }
+.time-display { color: #9bb2bd; font-size: .7rem; }
+.ab-toggle { border-color: #285665; border-radius: 3px; }
+.ab-btn { background: #061018; color: #8ba5b0; font-size: .66rem; }
+.ab-btn.active { background: rgb(44 246 255 / 15%); color: var(--accent); }
+
+.est-grid { gap: 1px; border: 1px solid var(--border); background: var(--border); }
+.est-item { border-radius: 0; background: #071018; }
+.est-item .est-label { color: #607c88; font-size: .58rem; letter-spacing: .1em; }
+.est-item .est-value { color: #e8f8ff; font-size: 1.25rem; }
+.est-item .est-value.cost { color: #ffb35c; }
+
+.readiness-list { display: grid; gap: 1px; border: 1px solid var(--border); background: var(--border); }
+.readiness-list > div {
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: .55rem;
+  min-height: 40px;
+  padding: .5rem .6rem;
+  background: #071018;
+  color: #9bb2bd;
+  font-size: .64rem;
+}
+.readiness-list i { width: 6px; height: 6px; border-radius: 50%; background: #4a6572; }
+.readiness-list b { color: #6b8793; font-size: .52rem; letter-spacing: .08em; }
+.readiness-list [data-ready='true'] i { background: var(--green); box-shadow: 0 0 8px rgb(99 245 188 / 55%); }
+.readiness-list [data-ready='true'] b { color: var(--green); }
+.readiness-list [data-ready='warning'] i { background: var(--yellow); box-shadow: 0 0 8px rgb(255 179 92 / 50%); }
+.readiness-list [data-ready='warning'] b { color: var(--yellow); }
+.readiness-hint { margin-top: .65rem; color: #718d99; font-size: .64rem; line-height: 1.6; }
+
+.progress-track { height: 6px; border-radius: 0; background: #122832; }
+.progress-fill { border-radius: 0; background: var(--accent); box-shadow: 0 0 12px rgb(44 246 255 / 38%); }
+.status-text { color: #718d99; font-size: .68rem; }
+
+.btn {
+  justify-content: center;
+  min-height: 38px;
+  padding: .58rem .85rem;
+  border: 1px solid #285665;
+  border-radius: 3px;
+  background: #071018;
+  color: #9bb2bd;
+  font-size: .68rem;
+  letter-spacing: .04em;
+}
+.btn span { color: #6b9dff; }
+.btn.primary {
+  min-height: 45px;
+  padding: .7rem 1rem;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #041014;
+  font-size: .75rem;
+  font-weight: 800;
+}
+.btn.primary span { color: #0a5260; }
+.btn.primary:hover { background: #8afaff; }
+.btn.primary:disabled { border-color: #203a45; background: #101b22; color: #526a75; }
+.btn.secondary { border-color: #315d6c; background: #08131a; color: #bad0d9; }
+.btn.secondary:hover { border-color: var(--accent); background: rgb(44 246 255 / 8%); color: var(--accent); }
+.btn.danger:hover { border-color: var(--red); background: rgb(255 95 199 / 10%); color: var(--red); }
+.workspace-side .action-row { display: grid; grid-template-columns: 1fr; margin: 0 0 .8rem !important; }
+.workspace-side .action-row .btn { width: 100%; }
+
+.dl-item { border-radius: 0; font-size: .67rem; }
+.dl-item:nth-child(odd) { background: #081018; }
+.dl-item:nth-child(even) { background: #050b10; }
+
+.next-step-card ol { display: grid; gap: .55rem; margin: 0; padding: 0 0 0 1.15rem; color: #91aab5; font-size: .66rem; line-height: 1.55; }
+.next-step-card code { color: var(--accent); }
+.next-step-card a {
+  display: inline-block;
+  margin-top: .8rem;
+  color: var(--accent);
+  font-size: .6rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+.next-step-card a:hover { text-decoration: underline; }
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: .2rem 0 0;
+  padding: 1rem .25rem .3rem;
+  border-top: 1px solid var(--border);
+  color: #4f6a76;
+  font-size: .56rem;
+  letter-spacing: .08em;
+  text-align: left;
+}
+
+.loading-overlay { z-index: 1000; background: rgb(4 7 11 / 92%); }
+.spinner { border-color: #1a3b47; border-top-color: var(--accent); border-radius: 3px; }
+.loading-text { color: #a8c1cc; font-family: var(--mono); }
+
+@media (max-width: 900px) {
+  .workspace-grid { grid-template-columns: 1fr; }
+  .workflow-line { grid-template-columns: repeat(5, minmax(145px, 1fr)); overflow-x: auto; }
+}
+
+@media (max-width: 700px) {
+  body { padding: .35rem; }
+  .terminal-shell { border-radius: 7px; }
+  .terminal-shell::before,
+  .terminal-shell::after { display: none; }
+  .slicer-nav { align-items: stretch; flex-direction: column; padding: .7rem; }
+  .slicer-nav-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .slicer-nav-actions a { justify-content: center; padding: 0 .4rem; }
+  .container { padding: .5rem; }
+  .header { min-height: 220px; }
+  .header h1 { font-size: clamp(2.2rem, 14vw, 3.5rem); }
+  .fx-grid { grid-template-columns: 1fr; }
+  .footer { align-items: flex-start; flex-direction: column; }
+}
+
+@media (max-width: 440px) {
+  .console-status { padding: 0 .7rem; }
+  .console-status > span:last-child { display: none; }
+  .slicer-nav-actions a { font-size: 0; }
+  .slicer-nav-actions a span { font-size: .6rem; }
+  .header::after { display: none; }
+  .badge-row { display: grid; grid-template-columns: 1fr; }
+  .est-grid { grid-template-columns: 1fr 1fr; }
+  .fx-head { align-items: flex-start; }
+  .fx-sub { display: block; margin-top: .25rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
 </style>
 </head>
 
 <body>
+
+<a class="skip-link" href="#slicerWorkspace">Skip to slicer workspace</a>
+<div class="grid-plane" aria-hidden="true"></div>
 
 <!-- Loading overlay (processing) -->
 <div class="loading-overlay hidden" id="loadingOverlay">
@@ -547,25 +1092,57 @@ select.preview-select:focus { border-color: var(--accent); }
   <div class="loading-text" id="loadingText">Processing…</div>
 </div>
 
+<div class="terminal-shell">
+  <div class="console-status">
+    <span class="live-status"><i></i> AUDIO LAB // READY</span>
+    <span>MOOSIC NETWORK</span>
+  </div>
+
+  <header class="slicer-nav">
+    <a class="brand" href="https://moosic.h4-cybercore.dev/" aria-label="Moosic Network dashboard">
+      <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <span><strong>MOOSIC</strong><small>NETWORK</small></span>
+    </a>
+    <nav class="slicer-nav-actions" aria-label="Moosic links">
+      <a href="https://moosic.h4-cybercore.dev/"><span>[01]</span> Dashboard</a>
+      <a href="https://moosic.h4-cybercore.dev/docs#slicing"><span>[?]</span> Documentation</a>
+      <a class="is-current" href="/" aria-current="page"><span>[+]</span> Sound Slicer</a>
+    </nav>
+  </header>
+
 <div class="container">
 
   <!-- HEADER -->
-  <div class="header">
-    <h1><span>🎵</span> Sound Slicer</h1>
-    <p>Split audio files into short clips — right in your browser.</p>
-    <div class="badge-row">
-      <span class="badge accent">100% Client-Side</span>
-      <span class="badge">No Upload</span>
-      <span class="badge">WAV 16-bit · 44.1kHz · Mono</span>
+  <section class="header" aria-labelledby="slicerTitle">
+    <div>
+      <p class="terminal-path">SYSTEM // AUDIO PREPARATION</p>
+      <h1 id="slicerTitle">Sound Slicer<span class="cursor" aria-hidden="true">_</span></h1>
+      <p>Prepare indexed, Second Life-ready WAV clips without sending source audio to a server.</p>
     </div>
+    <div class="badge-row">
+      <span class="badge accent"><b>01</b> 100% Client-Side</span>
+      <span class="badge"><b>02</b> No Source Upload</span>
+      <span class="badge"><b>03</b> WAV 16-bit // 44.1kHz // Mono</span>
+    </div>
+  </section>
+
+  <div class="workflow-line" aria-label="Sound preparation workflow">
+    <span><b>01</b> Add audio</span>
+    <span><b>02</b> Preview enhancement</span>
+    <span><b>03</b> Slice at 29.98s</span>
+    <span><b>04</b> Download ZIP</span>
+    <span><b>05</b> Upload to Second Life</span>
   </div>
+
+  <div class="workspace-grid" id="slicerWorkspace">
+    <div class="workspace-main">
 
   <!-- INPUT FILES -->
   <div class="card">
-    <div class="card-title">📂 INPUT FILES</div>
+    <div class="card-title"><span>[01]</span> INPUT FILES</div>
 
     <div class="dropzone" id="dropzone">
-      <div class="dropzone-icon">📁</div>
+      <div class="dropzone-icon" aria-hidden="true">＋</div>
       <div class="dropzone-text">Drag &amp; drop audio files or folders here, or <strong>click to browse</strong></div>
       <div class="dropzone-hint">MP3, WAV, FLAC, OGG, M4A, AAC, AIFF, OPUS · <strong id="folderBtn" style="cursor:pointer;color:var(--accent)">Browse Folder</strong></div>
     </div>
@@ -583,7 +1160,7 @@ select.preview-select:focus { border-color: var(--accent); }
   <!-- ENHANCE -->
   <div class="card" id="enhanceCard">
     <div class="fx-head">
-      <div class="card-title">🎚 ENHANCE <span class="fx-sub">applied to all songs before slicing</span></div>
+      <div class="card-title"><span>[02]</span> ENHANCE <span class="fx-sub">applied to all songs before slicing</span></div>
       <label class="switch">
         <input type="checkbox" id="fxToggle">
         <span class="knob"></span>
@@ -592,10 +1169,10 @@ select.preview-select:focus { border-color: var(--accent); }
 
     <div id="fxControls" class="fx-disabled">
       <div class="presets" id="fxPresets" style="margin: 0 0 16px;">
-        <button class="preset-pill" data-preset="louder">🔊 Louder</button>
-        <button class="preset-pill" data-preset="bass">🎛 Bass Boost</button>
-        <button class="preset-pill" data-preset="crisp">✨ Crisp</button>
-        <button class="preset-pill" data-preset="full">🚀 Full Enhance</button>
+        <button class="preset-pill" data-preset="louder">Louder</button>
+        <button class="preset-pill" data-preset="bass">Bass Boost</button>
+        <button class="preset-pill" data-preset="crisp">Crisp</button>
+        <button class="preset-pill" data-preset="full">Full Enhance</button>
       </div>
 
       <div class="fx-grid">
@@ -624,7 +1201,7 @@ select.preview-select:focus { border-color: var(--accent); }
 
   <!-- PREVIEW -->
   <div class="card" id="previewCard" style="display:none">
-    <div class="card-title">🎧 PREVIEW <span class="fx-sub">original vs enhanced — click waveform to seek</span></div>
+    <div class="card-title"><span>[03]</span> PREVIEW <span class="fx-sub">original vs enhanced — click waveform to seek</span></div>
 
     <select class="preview-select" id="previewSelect"></select>
 
@@ -645,9 +1222,13 @@ select.preview-select:focus { border-color: var(--accent); }
     <div class="status-text" id="previewHint" style="margin-top:4px"></div>
   </div>
 
+    </div>
+
+    <aside class="workspace-side" aria-label="Output controls and status">
+
   <!-- SETTINGS -->
   <div class="card">
-    <div class="card-title">⚙ SETTINGS</div>
+    <div class="card-title"><span>[04]</span> OUTPUT SETTINGS</div>
 
     <div class="row">
       <div class="field" style="max-width:160px">
@@ -665,9 +1246,21 @@ select.preview-select:focus { border-color: var(--accent); }
     <div class="format-note">Output: WAV 16-bit · 44.1 kHz · Mono</div>
   </div>
 
+  <!-- SECOND LIFE READINESS -->
+  <div class="card readiness-card" id="readinessCard">
+    <div class="card-title"><span>[SL]</span> OUTPUT CHECK</div>
+    <div class="readiness-list">
+      <div id="readyFiles" data-ready="false"><i></i><span>Source audio selected</span><b>WAITING</b></div>
+      <div id="readyLength" data-ready="true"><i></i><span>29.98-second timing</span><b>READY</b></div>
+      <div data-ready="true"><i></i><span>Indexed clip filenames</span><b>AUTO</b></div>
+      <div data-ready="true"><i></i><span>SL-compatible WAV output</span><b>AUTO</b></div>
+    </div>
+    <p class="readiness-hint" id="readinessHint">Add one or more audio files to begin.</p>
+  </div>
+
   <!-- ESTIMATE -->
   <div class="card" id="estimateCard" style="display:none">
-    <div class="card-title">📊 ESTIMATE</div>
+    <div class="card-title"><span>[05]</span> ESTIMATE</div>
 
     <div class="est-grid">
       <div class="est-item">
@@ -687,34 +1280,48 @@ select.preview-select:focus { border-color: var(--accent); }
         <div class="est-value cost" id="estCost">—</div>
       </div>
     </div>
-    <div class="est-note">Estimated upload cost based on 10 per clip</div>
+    <div class="est-note">Estimated Second Life upload cost at L$10 per sound clip.</div>
   </div>
 
   <!-- PROGRESS -->
   <div class="card" id="progressCard" style="display:none">
-    <div class="card-title">⏳ PROGRESS</div>
+    <div class="card-title"><span>[06]</span> PROCESS STATUS</div>
     <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
     <div class="status-text" id="statusText">Ready</div>
   </div>
 
   <!-- ACTIONS -->
   <div class="action-row" style="margin-top: 8px;">
-    <button class="btn primary" id="sliceBtn" disabled>🔪 Slice Songs</button>
-    <button class="btn secondary" id="downloadBtn" style="display:none">💾 Download ZIP</button>
+    <button class="btn primary" id="sliceBtn" disabled><span>[RUN]</span> Slice Songs</button>
+    <button class="btn secondary" id="downloadBtn" style="display:none"><span>[↓]</span> Download ZIP</button>
   </div>
 
   <!-- PER-SONG DOWNLOADS (multiple songs) -->
   <div class="card" id="downloadsCard" style="display:none">
-    <div class="card-title">💾 DOWNLOADS</div>
+    <div class="card-title"><span>[07]</span> DOWNLOADS</div>
     <ul class="dl-list" id="dlList"></ul>
+  </div>
+
+  <div class="card next-step-card">
+    <div class="card-title"><span>[→]</span> NEXT IN SECOND LIFE</div>
+    <ol>
+      <li>Upload every generated WAV as a Sound asset.</li>
+      <li>Use the Moosic station to print the ordered UUIDs.</li>
+      <li>Name the notecard <code>Artist - Song</code> and upload it.</li>
+    </ol>
+    <a href="https://moosic.h4-cybercore.dev/docs#sl-upload">OPEN THE STEP-BY-STEP MANUAL ↗</a>
+  </div>
+
+    </aside>
   </div>
 
   <!-- FOOTER -->
   <div class="footer">
-    Sound Slicer · Files never leave your computer ·
-    Powered by Web Audio API
+    <span>MOOSIC AUDIO LAB // Files never leave your computer</span>
+    <span>Powered by Web Audio API</span>
   </div>
 
+</div>
 </div>
 
 <script>
@@ -797,6 +1404,9 @@ const downloadsCard  = $('downloadsCard');
 const dlList         = $('dlList');
 const loadingOverlay = $('loadingOverlay');
 const loadingText    = $('loadingText');
+const readyFiles     = $('readyFiles');
+const readyLength    = $('readyLength');
+const readinessHint = $('readinessHint');
 
 // ── Ready immediately (no engine to download) ──
 updateSliceBtn();
@@ -870,7 +1480,7 @@ function renderFileList() {
     li.className = 'file-item';
 
     const name = document.createElement('span');
-    name.textContent = '\u{1F3B5} ' + f.file.name;
+    name.textContent = '\u266A ' + f.file.name;
 
     const right = document.createElement('span');
     right.style.display = 'flex';
@@ -910,6 +1520,29 @@ function hideDownload() {
 
 function updateSliceBtn() {
   sliceBtn.disabled = files.length === 0;
+  updateReadiness();
+}
+
+function updateReadiness() {
+  const count = files.length;
+  const clipLen = parseFloat(clipLengthEl.value);
+  const timingReady = Number.isFinite(clipLen) && Math.abs(clipLen - 29.98) < 0.001;
+  const filesState = readyFiles.querySelector('b');
+  const timingState = readyLength.querySelector('b');
+
+  readyFiles.dataset.ready = count > 0 ? 'true' : 'false';
+  filesState.textContent = count > 0 ? `${count} LOADED` : 'WAITING';
+
+  readyLength.dataset.ready = timingReady ? 'true' : 'warning';
+  timingState.textContent = timingReady ? 'READY' : 'CHECK';
+
+  if (count === 0) {
+    readinessHint.textContent = 'Add one or more audio files to begin.';
+  } else if (!timingReady) {
+    readinessHint.textContent = 'For Moosic playback, use the recommended 29.98-second clip length.';
+  } else {
+    readinessHint.textContent = 'Ready to slice. Output will be numbered in playback order and packaged as ZIP files.';
+  }
 }
 
 // ── Duration Probing (Web Audio API) ──
@@ -934,6 +1567,7 @@ async function probeDurations() {
 clipLengthEl.addEventListener('input', () => {
   refreshEstimate();
   updatePresetHighlight();
+  updateReadiness();
 });
 
 function refreshEstimate() {
@@ -958,7 +1592,7 @@ function refreshEstimate() {
   $('estSongs').textContent    = n;
   $('estDuration').textContent = mins > 0 ? `${mins}m ${secs.toFixed(1)}s` : `${secs.toFixed(1)}s`;
   $('estClips').textContent    = totalClips;
-  $('estCost').textContent     = `${cost.toLocaleString()}`;
+  $('estCost').textContent     = `L$${cost.toLocaleString()}`;
 }
 
 // ── Presets ──
@@ -967,6 +1601,7 @@ document.querySelectorAll('#presets .preset-pill').forEach(pill => {
     clipLengthEl.value = pill.dataset.val;
     updatePresetHighlight();
     refreshEstimate();
+    updateReadiness();
   });
 });
 
@@ -1873,7 +2508,7 @@ async function startSlicing() {
 
   setStatus(`\u2713 Done! ${totalFiles} song(s), ${totalOutputClips} total clips`, 100, false, true);
   downloadBtn.style.display = '';
-  downloadBtn.textContent = totalFiles > 1 ? '\uD83D\uDCBE Download All' : '\uD83D\uDCBE Download ZIP';
+  downloadBtn.textContent = totalFiles > 1 ? '[\u2193] Download All' : '[\u2193] Download ZIP';
   sliceBtn.disabled = false;
 
   // Show per-song download list for multiple songs
@@ -1912,12 +2547,12 @@ function renderDownloadList() {
 
     const nameSpan = document.createElement('span');
     nameSpan.className = 'dl-name';
-    nameSpan.textContent = `\uD83C\uDFB5 ${sz.name.replace('.zip','')} (${sz.clips} clips)`;
+    nameSpan.textContent = `\u266A ${sz.name.replace('.zip','')} (${sz.clips} clips)`;
     li.appendChild(nameSpan);
 
     const btn = document.createElement('button');
     btn.className = 'btn small secondary';
-    btn.textContent = '\u2B07 Download';
+    btn.textContent = '[\u2193] Download';
     btn.onclick = () => triggerDownload(sz.blob, sz.name);
     li.appendChild(btn);
 
