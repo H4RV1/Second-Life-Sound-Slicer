@@ -1011,6 +1011,13 @@ input[type='range']::-moz-range-thumb { border: 2px solid #041014; border-radius
 .dl-item { border-radius: 0; font-size: .67rem; }
 .dl-item:nth-child(odd) { background: #081018; }
 .dl-item:nth-child(even) { background: #050b10; }
+.folder-ready-state {
+  flex-shrink: 0;
+  color: var(--green);
+  font-size: .58rem;
+  letter-spacing: .08em;
+  text-shadow: 0 0 10px rgb(99 245 188 / 35%);
+}
 
 .next-step-card ol { display: grid; gap: .55rem; margin: 0; padding: 0 0 0 1.15rem; color: #91aab5; font-size: .66rem; line-height: 1.55; }
 .next-step-card code { color: var(--accent); }
@@ -1130,7 +1137,7 @@ input[type='range']::-moz-range-thumb { border: 2px solid #041014; border-radius
     <span><b>01</b> Add audio</span>
     <span><b>02</b> Preview enhancement</span>
     <span><b>03</b> Slice at 29.98s</span>
-    <span><b>04</b> Download ZIP</span>
+    <span><b>04</b> Save ready folders</span>
     <span><b>05</b> Upload to Second Life</span>
   </div>
 
@@ -1235,6 +1242,13 @@ input[type='range']::-moz-range-thumb { border: 2px solid #041014; border-radius
         <label for="clipLength">Clip Length (seconds)</label>
         <input type="number" id="clipLength" value="29.98" min="1" max="30" step="0.01">
       </div>
+      <div class="field" style="min-width:210px">
+        <label for="outputMode">Output Destination</label>
+        <select class="preview-select" id="outputMode">
+          <option value="folder">Ready WAV folders (recommended)</option>
+          <option value="zip">Uncompressed ZIP fallback</option>
+        </select>
+      </div>
     </div>
 
     <div class="presets" id="presets">
@@ -1243,7 +1257,7 @@ input[type='range']::-moz-range-thumb { border: 2px solid #041014; border-radius
       <button class="preset-pill active" data-val="29.98">29.98s</button>
     </div>
 
-    <div class="format-note">Output: WAV 16-bit · 44.1 kHz · Mono</div>
+    <div class="format-note" id="outputModeHint">Output: loose PCM WAV files · 16-bit · 44.1 kHz · Mono · no extraction required</div>
   </div>
 
   <!-- SECOND LIFE READINESS -->
@@ -1254,6 +1268,7 @@ input[type='range']::-moz-range-thumb { border: 2px solid #041014; border-radius
       <div id="readyLength" data-ready="true"><i></i><span>29.98-second timing</span><b>READY</b></div>
       <div data-ready="true"><i></i><span>Indexed clip filenames</span><b>AUTO</b></div>
       <div data-ready="true"><i></i><span>SL-compatible WAV output</span><b>AUTO</b></div>
+      <div id="readyDestination" data-ready="true"><i></i><span>Loose WAV song folders</span><b>DIRECT</b></div>
     </div>
     <p class="readiness-hint" id="readinessHint">Add one or more audio files to begin.</p>
   </div>
@@ -1292,13 +1307,13 @@ input[type='range']::-moz-range-thumb { border: 2px solid #041014; border-radius
 
   <!-- ACTIONS -->
   <div class="action-row" style="margin-top: 8px;">
-    <button class="btn primary" id="sliceBtn" disabled><span>[RUN]</span> Slice Songs</button>
-    <button class="btn secondary" id="downloadBtn" style="display:none"><span>[↓]</span> Download ZIP</button>
+    <button class="btn primary" id="sliceBtn" disabled><span>[RUN]</span> Choose Folder &amp; Slice</button>
+    <button class="btn secondary" id="downloadBtn" style="display:none"><span>[↓]</span> Download Uncompressed ZIP</button>
   </div>
 
   <!-- PER-SONG DOWNLOADS (multiple songs) -->
   <div class="card" id="downloadsCard" style="display:none">
-    <div class="card-title"><span>[07]</span> DOWNLOADS</div>
+    <div class="card-title" id="downloadsTitle"><span>[07]</span> OUTPUT FOLDERS</div>
     <ul class="dl-list" id="dlList"></ul>
   </div>
 
@@ -1384,6 +1399,7 @@ function logSliceEvent(songName, artist, inputFormat, durationSecs, clipCount, c
 let files    = [];   // { file: File, duration: number|null }
 let zipBlob  = null;
 let songZips = [];   // { name: string, blob: Blob } per-song zips
+let songResults = []; // { name: string, clips: number } direct-folder results
 
 // ── DOM ──
 const $ = id => document.getElementById(id);
@@ -1394,6 +1410,8 @@ const fileList       = $('fileList');
 const fileCount      = $('fileCount');
 const clearBtn       = $('clearBtn');
 const clipLengthEl   = $('clipLength');
+const outputModeEl   = $('outputMode');
+const outputModeHint = $('outputModeHint');
 const estimateCard   = $('estimateCard');
 const progressCard   = $('progressCard');
 const progressFill   = $('progressFill');
@@ -1401,15 +1419,24 @@ const statusText     = $('statusText');
 const sliceBtn       = $('sliceBtn');
 const downloadBtn    = $('downloadBtn');
 const downloadsCard  = $('downloadsCard');
+const downloadsTitle = $('downloadsTitle');
 const dlList         = $('dlList');
 const loadingOverlay = $('loadingOverlay');
 const loadingText    = $('loadingText');
 const readyFiles     = $('readyFiles');
 const readyLength    = $('readyLength');
+const readyDestination = $('readyDestination');
 const readinessHint = $('readinessHint');
+
+const supportsFolderExport = typeof window.showDirectoryPicker === 'function';
+if (!supportsFolderExport) {
+  outputModeEl.querySelector('option[value="folder"]').disabled = true;
+  outputModeEl.value = 'zip';
+}
 
 // ── Ready immediately (no engine to download) ──
 updateSliceBtn();
+updateOutputModeUI();
 
 // ── File Handling ──
 dropzone.addEventListener('click', () => fileInput.click());
@@ -1516,12 +1543,36 @@ function hideDownload() {
   dlList.innerHTML = '';
   zipBlob = null;
   songZips = [];
+  songResults = [];
 }
 
 function updateSliceBtn() {
   sliceBtn.disabled = files.length === 0;
   updateReadiness();
 }
+
+function updateOutputModeUI() {
+  const folderMode = outputModeEl.value === 'folder' && supportsFolderExport;
+  if (folderMode) {
+    sliceBtn.innerHTML = '<span>[RUN]</span> Choose Folder &amp; Slice';
+    outputModeHint.textContent = 'Output: loose PCM WAV files · 16-bit · 44.1 kHz · Mono · no extraction required';
+    readyDestination.dataset.ready = 'true';
+    readyDestination.querySelector('span').textContent = 'Loose WAV song folders';
+    readyDestination.querySelector('b').textContent = 'DIRECT';
+  } else {
+    sliceBtn.innerHTML = '<span>[RUN]</span> Slice &amp; Build ZIP';
+    outputModeHint.textContent = 'Fallback: uncompressed ZIP · extract the folders before uploading sounds to Second Life';
+    readyDestination.dataset.ready = 'warning';
+    readyDestination.querySelector('span').textContent = 'ZIP archive requires extraction';
+    readyDestination.querySelector('b').textContent = 'FALLBACK';
+  }
+  updateReadiness();
+}
+
+outputModeEl.addEventListener('change', () => {
+  hideDownload();
+  updateOutputModeUI();
+});
 
 function updateReadiness() {
   const count = files.length;
@@ -1540,8 +1591,12 @@ function updateReadiness() {
     readinessHint.textContent = 'Add one or more audio files to begin.';
   } else if (!timingReady) {
     readinessHint.textContent = 'For Moosic playback, use the recommended 29.98-second clip length.';
+  } else if (outputModeEl.value === 'folder' && supportsFolderExport) {
+    readinessHint.textContent = count === 1
+      ? 'Ready. Choose a destination and the song will be saved as one folder containing all loose WAV clips.'
+      : `Ready. Choose a destination and ${count} separate song folders will be created with their own loose WAV clips.`;
   } else {
-    readinessHint.textContent = 'Ready to slice. Output will be numbered in playback order and packaged as ZIP files.';
+    readinessHint.textContent = 'Ready to slice. The ZIP uses store mode so the PCM WAV files are not recompressed.';
   }
 }
 
@@ -2408,6 +2463,40 @@ async function decodeToMono44k(file, applyFx = FX.enabled) {
 // ── Slicing ──
 sliceBtn.addEventListener('click', startSlicing);
 
+async function createUniqueSongDirectory(parent, requestedName) {
+  const baseName = sanitizeName(requestedName);
+  let candidate = baseName;
+  let suffix = 2;
+
+  while (true) {
+    try {
+      await parent.getDirectoryHandle(candidate);
+      candidate = `${baseName} (${suffix++})`;
+    } catch (err) {
+      if (err.name === 'NotFoundError') {
+        return parent.getDirectoryHandle(candidate, { create: true });
+      }
+      if (err.name === 'TypeMismatchError') {
+        candidate = `${baseName} (${suffix++})`;
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+async function writeLooseWav(directory, fileName, wavBytes) {
+  const fileHandle = await directory.getFileHandle(fileName, { create: true });
+  const writable = await fileHandle.createWritable();
+  try {
+    await writable.write(new Blob([wavBytes], { type: 'audio/wav' }));
+    await writable.close();
+  } catch (err) {
+    try { await writable.abort(); } catch {}
+    throw err;
+  }
+}
+
 async function startSlicing() {
   if (files.length === 0) return;
 
@@ -2422,15 +2511,34 @@ async function startSlicing() {
     return;
   }
 
+  const folderMode = outputModeEl.value === 'folder' && supportsFolderExport;
+  let outputRoot = null;
+  if (folderMode) {
+    try {
+      outputRoot = await window.showDirectoryPicker({
+        id: 'moosic-slicer-output',
+        mode: 'readwrite'
+      });
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        alert(`The output folder could not be opened: ${err.message}`);
+      }
+      return;
+    }
+  }
+
   pausePreview();
   sliceBtn.disabled = true;
   downloadBtn.style.display = 'none';
   progressCard.style.display = '';
   zipBlob = null;
 
-  const zip = new JSZip();
+  const zip = folderMode ? null : new JSZip();
   songZips = [];
+  songResults = [];
+  const usedArchiveFolders = new Set();
   let totalOutputClips = 0;
+  let completedSongs = 0;
   const totalFiles = files.length;
 
   for (let fi = 0; fi < totalFiles; fi++) {
@@ -2439,6 +2547,12 @@ async function startSlicing() {
     const stem     = fileName.replace(/\.[^/.]+$/, '');
     const { artist, song } = parseFilename(stem);
     const folderName = sanitizeName(artist && song ? `${artist} - ${song}` : stem);
+    let archiveFolderName = folderName;
+    let archiveSuffix = 2;
+    while (usedArchiveFolders.has(archiveFolderName.toLowerCase())) {
+      archiveFolderName = `${folderName} (${archiveSuffix++})`;
+    }
+    usedArchiveFolders.add(archiveFolderName.toLowerCase());
 
     setStatus(`[${fi + 1}/${totalFiles}] ${FX.enabled ? 'Enhancing' : 'Decoding'} ${fileName}\u2026`, Math.round((fi / totalFiles) * 100));
 
@@ -2450,8 +2564,12 @@ async function startSlicing() {
       const numClips = Math.ceil(totalSamples / samplesPerClip);
       const pad = numClips < 100 ? 2 : 3;
 
-      // Per-song zip (for individual downloads)
-      const songZip = new JSZip();
+      // Direct mode creates one real folder per song. ZIP mode mirrors that
+      // exact layout without compressing the PCM WAV data.
+      const songDirectory = folderMode
+        ? await createUniqueSongDirectory(outputRoot, folderName)
+        : null;
+      const songZip = folderMode ? null : new JSZip();
 
       for (let c = 0; c < numClips; c++) {
         const startSample = c * samplesPerClip;
@@ -2464,25 +2582,32 @@ async function startSlicing() {
         const pct = Math.round(((fi + (c / numClips)) / totalFiles) * 100);
         setStatus(`[${fi + 1}/${totalFiles}] ${clipFileName} (${c + 1}/${numClips})`, pct);
 
-        // Encode clip as WAV and add to both ZIPs
+        // Encode the final upload-ready PCM WAV clip.
         const wavBytes = encodeWAV(clipSamples, SL_SAMPLE_RATE);
-        // Single song: clips at ZIP root (ZIP filename = folder name on extract)
-        // Multi song: subfolder per song to separate them
-        if (totalFiles === 1) {
-          zip.file(clipFileName, wavBytes);
+        if (folderMode) {
+          await writeLooseWav(songDirectory, clipFileName, wavBytes);
         } else {
-          zip.file(`${folderName}/${clipFileName}`, wavBytes);
+          // Single song: clips at ZIP root. Batches use one folder per song.
+          if (totalFiles === 1) {
+            zip.file(clipFileName, wavBytes, { compression: 'STORE' });
+          } else {
+            zip.file(`${archiveFolderName}/${clipFileName}`, wavBytes, { compression: 'STORE' });
+          }
+          songZip.file(clipFileName, wavBytes, { compression: 'STORE' });
         }
-        songZip.file(clipFileName, wavBytes);
         totalOutputClips++;
 
         // Yield to UI thread every few clips
         if (c % 4 === 3) await new Promise(r => setTimeout(r, 0));
       }
 
-      // Generate per-song zip
-      const songBlob = await songZip.generateAsync({ type: 'blob' });
-      songZips.push({ name: folderName + '.zip', blob: songBlob, clips: numClips });
+      if (folderMode) {
+        songResults.push({ name: songDirectory.name, clips: numClips });
+      } else {
+        const songBlob = await songZip.generateAsync({ type: 'blob', compression: 'STORE' });
+        songZips.push({ name: archiveFolderName + '.zip', blob: songBlob, clips: numClips });
+      }
+      completedSongs++;
 
       // ── Log to analytics (fire-and-forget) ──
       const ext = fileName.split('.').pop().toLowerCase();
@@ -2494,27 +2619,38 @@ async function startSlicing() {
     }
   }
 
-  // Generate combined ZIP
-  if (totalFiles === 1) {
-    const stem = files[0].file.name.replace(/\.[^/.]+$/, '');
-    zipFileName = sanitizeName(stem) + '.zip';
+  if (completedSongs === 0) {
+    setStatus('No WAV clips were saved. Check the source files and try again.', 100, true);
+    sliceBtn.disabled = false;
+    return;
+  }
+
+  if (folderMode) {
+    setStatus(`\u2713 Saved ${completedSongs} song folder(s) with ${totalOutputClips} loose WAV clips inside "${outputRoot.name}"`, 100, false, true);
+    downloadBtn.style.display = 'none';
+    renderFolderResults();
   } else {
-    zipFileName = `sound-clips-${totalFiles}-songs.zip`;
-  }
-  setStatus('Creating ZIP\u2026', 95);
-  zipBlob = await zip.generateAsync({ type: 'blob' }, meta => {
-    setStatus(`Compressing\u2026 ${Math.round(meta.percent)}%`, 95 + Math.round(meta.percent * 0.05));
-  });
+    if (totalFiles === 1) {
+      const stem = files[0].file.name.replace(/\.[^/.]+$/, '');
+      zipFileName = sanitizeName(stem) + '.zip';
+    } else {
+      zipFileName = `sound-clips-${totalFiles}-songs.zip`;
+    }
+    setStatus('Packing uncompressed ZIP\u2026', 95);
+    zipBlob = await zip.generateAsync({ type: 'blob', compression: 'STORE' }, meta => {
+      setStatus(`Packing\u2026 ${Math.round(meta.percent)}%`, 95 + Math.round(meta.percent * 0.05));
+    });
 
-  setStatus(`\u2713 Done! ${totalFiles} song(s), ${totalOutputClips} total clips`, 100, false, true);
-  downloadBtn.style.display = '';
-  downloadBtn.textContent = totalFiles > 1 ? '[\u2193] Download All' : '[\u2193] Download ZIP';
+    setStatus(`\u2713 Done! ${completedSongs} song(s), ${totalOutputClips} total clips`, 100, false, true);
+    downloadBtn.style.display = '';
+    downloadBtn.textContent = totalFiles > 1 ? '[\u2193] Download All Folders' : '[\u2193] Download Uncompressed ZIP';
+
+    // Show per-song archive downloads for batches.
+    if (totalFiles > 1) {
+      renderDownloadList();
+    }
+  }
   sliceBtn.disabled = false;
-
-  // Show per-song download list for multiple songs
-  if (totalFiles > 1) {
-    renderDownloadList();
-  }
 }
 
 function setStatus(msg, pct, isError = false, isSuccess = false) {
@@ -2539,8 +2675,31 @@ downloadBtn.addEventListener('click', () => {
   triggerDownload(zipBlob, zipFileName);
 });
 
+function renderFolderResults() {
+  dlList.innerHTML = '';
+  downloadsTitle.innerHTML = '<span>[07]</span> SAVED SONG FOLDERS';
+  songResults.forEach(result => {
+    const li = document.createElement('li');
+    li.className = 'dl-item';
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'dl-name';
+    nameSpan.textContent = `\u266A ${result.name} (${result.clips} loose WAV clips)`;
+    li.appendChild(nameSpan);
+
+    const state = document.createElement('strong');
+    state.className = 'folder-ready-state';
+    state.textContent = '[READY]';
+    li.appendChild(state);
+
+    dlList.appendChild(li);
+  });
+  downloadsCard.style.display = songResults.length ? '' : 'none';
+}
+
 function renderDownloadList() {
   dlList.innerHTML = '';
+  downloadsTitle.innerHTML = '<span>[07]</span> UNCOMPRESSED ZIP DOWNLOADS';
   songZips.forEach(sz => {
     const li = document.createElement('li');
     li.className = 'dl-item';
